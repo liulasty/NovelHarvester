@@ -5,6 +5,16 @@
  *   分页：`/novel{id}/?p=2` … 由 `#pagination` 解析最大页码，逐页合并。
  * - 正文：`#chapter-content` 由页内脚本 POST `/conapi.php` 注入，需等待加载完成后再取文本。
  *
+ * 频繁请求易被关连接 / 超时：可调环境变量（默认已加章节间隔与重试）：
+ *   N9KSW_DELAY_MS          每章抓取前等待（毫秒），默认 1200
+ *   N9KSW_DELAY_JITTER_MS   在延迟上再加 0～该值的随机毫秒，默认 800
+ *   N9KSW_COOLDOWN_MS       单章失败后额外等待再抓下一章，默认 5000
+ *   N9KSW_CHAPTER_RETRIES   同一章正文拉取失败时的总尝试次数，默认 3
+ *   N9KSW_GOTO_RETRIES      单次 navigation 重试次数，默认 4
+ *   N9KSW_CONTENT_WAIT_MS   waitForFunction 等正文就绪的最长时间，默认 120000
+ *   N9KSW_API_WAIT_MS       等待 conapi.php 响应，默认 60000
+ *   NOVEL_HEADLESS=0        有头模式有时更稳（与仓库其它脚本一致）
+ *
  * 用法：
  *   node gaode/9ksw/scrape-9ksw.js https://9ksw.com/novel45382/
  *   node gaode/9ksw/scrape-9ksw.js https://9ksw.com/novel45382/ 5
@@ -18,6 +28,60 @@ const MERGE_NOVEL = path.join(__dirname, '..', '..', 'merge-novel.js');
 const PROJECT_ROOT = path.join(__dirname, '..', '..');
 
 const GOTO_OPTS = { waitUntil: 'domcontentloaded', timeout: 90000 };
+
+function delay(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function n9kswChapterDelayMs() {
+  const base = parseInt(process.env.N9KSW_DELAY_MS || '1200', 10);
+  const jitter = parseInt(process.env.N9KSW_DELAY_JITTER_MS || '800', 10);
+  const j = jitter > 0 ? Math.floor(Math.random() * (jitter + 1)) : 0;
+  return Math.max(0, (Number.isFinite(base) ? base : 1200) + j);
+}
+
+function n9kswCooldownAfterFailMs() {
+  const n = parseInt(process.env.N9KSW_COOLDOWN_MS || '5000', 10);
+  return Number.isFinite(n) && n >= 0 ? n : 5000;
+}
+
+function n9kswIntEnv(name, def) {
+  const n = parseInt(process.env[name] || String(def), 10);
+  return Number.isFinite(n) && n > 0 ? n : def;
+}
+
+function isTransientNavigationError(msg) {
+  const s = msg || '';
+  return (
+    /ERR_CONNECTION_CLOSED|ERR_CONNECTION_RESET|ERR_SSL|ERR_TIMED_OUT|ECONNRESET|ETIMEDOUT/i.test(s) ||
+    /interrupted by another navigation|Navigation aborted|Navigation failed|net::ERR/i.test(s) ||
+    /Target page.*closed|context or browser has been closed/i.test(s)
+  );
+}
+
+async function gotoWithRetry(page, url, label) {
+  const maxAttempts = n9kswIntEnv('N9KSW_GOTO_RETRIES', 4);
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await page.goto(url, GOTO_OPTS);
+      return;
+    } catch (e) {
+      lastErr = e;
+      const msg = e?.message || String(e);
+      if (attempt < maxAttempts && isTransientNavigationError(msg)) {
+        const backoff = 2000 * attempt * attempt + Math.floor(Math.random() * 1500);
+        console.warn(
+          `[9ksw] goto ${label} 失败，${backoff}ms 后重试 (${attempt + 1}/${maxAttempts}): ${msg.slice(0, 140)}`
+        );
+        await delay(backoff);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
+}
 
 function titleLooksLikeChapterHeading(title) {
   return /第\s*(?:\d+|[零一二三四五六七八九十百千万两廿卅]+)\s*章|间章/.test(String(title || ''));
@@ -241,26 +305,63 @@ async function discoverChapters(page, entryUrl) {
 }
 
 async function extractChapterPlainText(page, chapterUrl) {
-  const apiDone = page
-    .waitForResponse((r) => /conapi\.php/i.test(r.url()), { timeout: 60000 })
-    .catch(() => null);
-  await page.goto(chapterUrl, GOTO_OPTS);
-  await page.waitForSelector('#chapter-content', { timeout: 45000 });
-  const apiResp = await apiDone;
-  if (!apiResp) {
-    console.warn('[9ksw] 未捕获 conapi.php 响应，改以正文节点轮询');
+  const label = path.basename(new URL(chapterUrl).pathname);
+  const contentWaitMs = n9kswIntEnv('N9KSW_CONTENT_WAIT_MS', 120000);
+  const apiWaitMs = n9kswIntEnv('N9KSW_API_WAIT_MS', 60000);
+  const maxChapterAttempts = n9kswIntEnv('N9KSW_CHAPTER_RETRIES', 3);
+
+  const waitForBodyReady = async () => {
+    await page.waitForFunction(
+      () => {
+        const el = document.getElementById('chapter-content');
+        if (!el) return false;
+        const t = (el.innerText || '').trim();
+        return t.length > 60 && !/正在加载|加载中/.test(t);
+      },
+      { timeout: contentWaitMs }
+    );
+  };
+
+  let lastErr;
+  for (let round = 1; round <= maxChapterAttempts; round++) {
+    try {
+      const apiDone = page
+        .waitForResponse((r) => /conapi\.php/i.test(r.url()), { timeout: apiWaitMs })
+        .catch(() => null);
+
+      await gotoWithRetry(page, chapterUrl, label);
+      await page.waitForSelector('#chapter-content', { timeout: 60000 });
+      const apiResp = await apiDone;
+      if (!apiResp) {
+        console.warn('[9ksw] 未捕获 conapi.php 响应，改以正文节点轮询');
+      }
+
+      try {
+        await waitForBodyReady();
+      } catch (e1) {
+        console.warn('[9ksw] 正文就绪超时，尝试 reload 一次…');
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 90000 }).catch(() => {});
+        await page.waitForSelector('#chapter-content', { timeout: 45000 }).catch(() => {});
+        await waitForBodyReady();
+      }
+
+      const raw = await page.$eval('#chapter-content', (el) => el.innerText.trim());
+      const cleaned = stripAdLines(raw);
+      if (!cleaned || cleaned.length < 40) {
+        throw new Error('正文过短，可能仍被拦截或未加载完');
+      }
+      return cleaned;
+    } catch (e) {
+      lastErr = e;
+      if (round >= maxChapterAttempts) break;
+      const backoff = 4000 * round + Math.floor(Math.random() * 2000);
+      console.warn(
+        `[9ksw] 章节 ${label} 第 ${round}/${maxChapterAttempts} 次失败，${backoff}ms 后重试: ${String(e?.message || e).slice(0, 160)}`
+      );
+      await delay(backoff);
+    }
   }
-  await page.waitForFunction(
-    () => {
-      const el = document.getElementById('chapter-content');
-      if (!el) return false;
-      const t = (el.innerText || '').trim();
-      return t.length > 60 && !/正在加载|加载中/.test(t);
-    },
-    { timeout: 90000 }
-  );
-  const raw = await page.$eval('#chapter-content', (el) => el.innerText.trim());
-  return stripAdLines(raw);
+  throw lastErr;
 }
 
 async function main() {
@@ -284,8 +385,25 @@ async function main() {
   }
 
   const headless = process.env.NOVEL_HEADLESS !== '0';
-  const browser = await chromium.launch({ headless });
-  const page = await browser.newPage();
+  if (!headless) {
+    console.log('[9ksw] 有头模式 NOVEL_HEADLESS=0（部分环境下更不易被拦）');
+  }
+  const browser = await chromium.launch({
+    headless,
+    channel: headless ? undefined : 'chrome',
+    args: ['--disable-blink-features=AutomationControlled'],
+  });
+  const context = await browser.newContext({
+    userAgent:
+      process.env.N9KSW_USER_AGENT?.trim() ||
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    locale: 'zh-CN',
+    extraHTTPHeaders: {
+      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    },
+  });
+  const page = await context.newPage();
+  page.setDefaultTimeout(n9kswIntEnv('N9KSW_CONTENT_WAIT_MS', 120000));
 
   let chapters;
   const envListUrl = process.env.N9KSW_CHAPTERS_URL?.trim();
@@ -338,6 +456,11 @@ async function main() {
       continue;
     }
 
+    const pauseMs = n9kswChapterDelayMs();
+    if (pauseMs > 0) {
+      await delay(pauseMs);
+    }
+
     process.stdout.write(`[${i + 1}/${total}] ${id} … `);
     try {
       const text = await extractChapterPlainText(page, href);
@@ -345,6 +468,11 @@ async function main() {
       console.log(`ok (${text.length} 字)`);
     } catch (e) {
       console.log(`失败: ${e.message}`);
+      const cool = n9kswCooldownAfterFailMs();
+      if (cool > 0) {
+        console.warn(`[9ksw] 冷却 ${cool}ms 后继续下一章`);
+        await delay(cool);
+      }
     }
   }
 

@@ -1,5 +1,6 @@
 /**
- * 将书籍目录下 chapters/ 中的 001_*.txt、002_*.txt … 按序号合并为 merged/全文合并.txt。
+ * 将书籍目录下 chapters/ 中的 {序号}_*.txt 按序号合并为 merged/全文合并.txt。
+ * 序号可为任意位数（001、1000 …），按数值排序。
  * 若不存在 chapters/ 子目录，则兼容旧版：直接在书籍根目录查找分章文件。
  *
  *   node merge-novel.js
@@ -14,12 +15,20 @@ const DEFAULT_DIR = 'novel-output';
 
 const DEFAULT_SEP = '\n\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n\n';
 
+/** 分章文件名：至少一位数字 + 下划线 + 非空主体 + .txt（兼容 001_ 与 1000_ 等） */
+const CHAPTER_FILE_RE = /^(\d+)_(.+)\.txt$/i;
+
 function listChapterFiles(dir) {
   if (!fs.existsSync(dir)) return [];
   return fs
     .readdirSync(dir)
-    .filter((f) => /^\d{3}_.+\.txt$/i.test(f))
-    .sort((a, b) => parseInt(a.slice(0, 3), 10) - parseInt(b.slice(0, 3), 10));
+    .filter((f) => CHAPTER_FILE_RE.test(f))
+    .sort((a, b) => {
+      const na = parseInt(a.match(/^(\d+)_/i)[1], 10);
+      const nb = parseInt(b.match(/^(\d+)_/i)[1], 10);
+      if (na !== nb) return na - nb;
+      return a.localeCompare(b, 'zh-Hans-CN');
+    });
 }
 
 /** 优先使用 书籍根/chapters/，否则使用根目录下的分章文件（旧布局） */
@@ -45,7 +54,7 @@ function mergeNovel(options = {}) {
   const { chaptersDir, files } = resolveChaptersLocation(inputDir);
   if (files.length === 0) {
     console.error(
-      `未在 ${inputDir} 找到分章文件（请在 chapters/ 下放 001_标题.txt，或沿用根目录旧布局）`
+      `未在 ${inputDir} 找到分章文件（请在 chapters/ 下放 {序号}_标题.txt，或沿用根目录旧布局）`
     );
     return false;
   }

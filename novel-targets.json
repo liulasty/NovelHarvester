@@ -46,6 +46,14 @@
       "mergeTitle": "仙姝墮"
     },
     {
+      "id": "nzxs-xzxd",
+      "label": "nzxs.cc 仙子穴道（html/index + /html/分类/书id/页/ 分页目录）",
+      "scraper": "nzxs",
+      "chaptersListUrl": "https://www.nzxs.cc/html/5001591/index.html",
+      "outputDir": "novel-output/nzxs-5001591",
+      "mergeTitle": "仙子穴道"
+    },
+    {
       "id": "bookszw-22313",
       "label": "bookszw.com 22/22313（笔趣阁目录 #list）",
       "scraper": "bookszw",

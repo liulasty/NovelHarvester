@@ -1,12 +1,20 @@
 /**
  * nzxs.cc（女主小说）工作流：
- * 1) 传入书籍页 URL（/book/{id}/ 或 /book/{id}/n/），在 #novel_info 下解析「章节列表」对应 ul.chapter-list
- * 2) 若存在「阅读更多章节 / 查看更多章节」等入口（常见为 a.btn-mulu，href 如 /book/{id}/1/），再抓第二页目录并顺序拼接（去重 href）
+ *
+ * A) 旧版书籍页 /book/{id}/（或 /book/{id}/n/）
+ *    在 #novel_info 下解析「章节列表」→ ul.chapter-list；「查看更多章节」→ /book/{id}/1/ 再合并去重。
+ *
+ * B) 新版 html 详情页 /html/{书数字id}/index.html
+ *    首页含「最新章节」短列表 + 「章节列表」约 20 条；点「查看更多章节」进入分页目录
+ *    /html/{分类id}/{书数字id}/{页码}/（如 /html/5001/5001591/1/、…/2/…），每页约 20 条正文链接。
+ *    脚本会先抓 index，再自动遍历 N=1,2,… 直至连续两页无新增章节链接。
+ *
  * 3) 逐章打开阅读页，从 #txt 取正文；章内多页为同 id 的 _1.html、_2.html…（与 h1「（第N页）」递增一致，回卷到第1页则停止）
  *
  * 用法：
  *   node gaode/nzxs/scrape-nzxs.js https://www.nzxs.cc/book/352626/
- *   node gaode/nzxs/scrape-nzxs.js https://www.nzxs.cc/book/352626/ 3
+ *   node gaode/nzxs/scrape-nzxs.js https://www.nzxs.cc/html/5001591/index.html
+ *   node gaode/nzxs/scrape-nzxs.js https://www.nzxs.cc/html/5001/5001591/1/
  * --out-dir= --merge --merge-title=  --file --url-file=  与 book18/diyibanzhu 一致
  */
 
@@ -36,7 +44,7 @@ function sanitizeFilePart(s) {
 function bookCatalogRootUrl(bookPageUrl) {
   const u = new URL(bookPageUrl);
   const m = u.pathname.match(/^\/book\/(\d+)/);
-  if (!m) throw new Error(`非 nzxs 书籍目录 URL: ${bookPageUrl}`);
+  if (!m) throw new Error(`非 nzxs /book/ 目录 URL: ${bookPageUrl}`);
   return `${u.origin}/book/${m[1]}/`;
 }
 
@@ -45,13 +53,56 @@ function bookIdFromUrl(bookPageUrl) {
   return m ? m[1] : '';
 }
 
+/** /html/5001591/index.html → 书数字 id（用于匹配分页 URL 中段） */
+function htmlIndexFolderId(entryUrl) {
+  const m = String(new URL(entryUrl).pathname).match(/^\/html\/(\d+)\/index\.html$/i);
+  return m ? m[1] : '';
+}
+
+/**
+ * 在 index 页上找「查看更多章节」等指向 /html/{分类}/{书id}/{页}/ 的链接，返回 { categoryId, bookId }。
+ */
+async function findHtmlPaginatedCatalogParams(page, folderBookId) {
+  return page.evaluate((folderId) => {
+    const anchors = [...document.querySelectorAll('a[href]')];
+    let best = null;
+    for (const a of anchors) {
+      const raw = a.getAttribute('href') || '';
+      let pathname = '';
+      try {
+        pathname = new URL(raw, location.origin).pathname;
+      } catch {
+        continue;
+      }
+      const m = pathname.match(/^\/html\/(\d+)\/(\d+)\/(\d+)\/?$/);
+      if (!m || m[2] !== String(folderId)) continue;
+      const categoryId = m[1];
+      const bookId = m[2];
+      const pageNum = parseInt(m[3], 10);
+      const t = (a.textContent || '').replace(/\s+/g, '').trim();
+      const preferred =
+        /查看更多章节|阅读更多章节|更多章节|章节目录|全部章节/.test(t) || a.classList.contains('btn-mulu');
+      const score = (preferred ? 0 : 1000) + pageNum;
+      if (!best || score < best.score) {
+        best = { categoryId, bookId, pageNum, score };
+      }
+    }
+    return best;
+  }, folderBookId);
+}
+
 /**
  * 从当前书籍目录页收集「章节列表」区块下的链接（忽略「最新章节」短列表）。
  * 第二页模板可能没有 #novel_info，则退回：取页面中「最长」的 ul.chapter-list（链接最多）。
  */
 async function extractCatalogChapterLinks(page) {
   return page.evaluate(() => {
-    const readRe = /^\/read\/\d+\/\d+(?:_\d+)?\.html$/i;
+    /** 旧版 /read/a/b.html；新版 html 目录站 /reads/分类/书id/章节id.html */
+    function isChapterReadPath(pathname) {
+      if (/^\/read\/\d+\/\d+(?:_\d+)?\.html$/i.test(pathname)) return true;
+      if (/^\/reads\/\d+\/\d+\/\d+(?:_\d+)?\.html$/i.test(pathname)) return true;
+      return false;
+    }
 
     function titleFromAnchor(a) {
       return (a.textContent || '')
@@ -70,12 +121,12 @@ async function extractCatalogChapterLinks(page) {
         } catch {
           continue;
         }
-        if (!readRe.test(new URL(href).pathname)) continue;
+        if (!isChapterReadPath(new URL(href).pathname)) continue;
         if (seen.has(href)) continue;
         seen.add(href);
         let title = titleFromAnchor(a);
         if (!title || title === '开始阅读') {
-          const m = href.match(/\/read\/\d+\/(\d+)\.html$/i);
+          const m = href.match(/\/(?:read|reads)\/(?:\d+\/)?\d+\/(\d+)(?:_\d+)?\.html$/i);
           title = m ? `章节_${m[1]}` : href;
         }
         out.push({ href, title });
@@ -137,29 +188,53 @@ async function findMoreCatalogHref(page, bookId) {
   }, bookId);
 }
 
-async function discoverChapters(page, entryUrl) {
-  const root = bookCatalogRootUrl(entryUrl);
-  const bookId = bookIdFromUrl(entryUrl);
+const MAX_HTML_CATALOG_PAGES = 5000;
+/** 分页目录常夹带与首页重复的「最新」链接，易出现多页 added=0；阈值过小会提前截断 */
+const HTML_CATALOG_EMPTY_STREAK = 5;
+
+function createCatalogVisitor(page) {
   const seenListUrls = new Set();
   const byHref = new Map();
   const ordered = [];
 
   const visitList = async (listUrl) => {
-    if (seenListUrls.has(listUrl)) return;
+    if (seenListUrls.has(listUrl)) return 0;
     seenListUrls.add(listUrl);
-    await page.goto(listUrl, GOTO_LIST_OPTS);
+    try {
+      await page.goto(listUrl, GOTO_LIST_OPTS);
+    } catch (e) {
+      const msg = e?.message || String(e);
+      console.warn(`[nzxs] 目录 networkidle 失败，改用 domcontentloaded: ${listUrl} (${msg.slice(0, 100)})`);
+      try {
+        await page.goto(listUrl, GOTO_OPTS);
+      } catch (e2) {
+        console.warn(`[nzxs] 目录页跳过: ${listUrl} — ${e2?.message || e2}`);
+        return 0;
+      }
+    }
     await page.waitForSelector('ul.chapter-list', { timeout: 25000 }).catch(() => {});
 
     const chunk = await extractCatalogChapterLinks(page);
     if (!chunk.ok) {
       console.warn(`目录页解析: ${listUrl} → ${chunk.reason}，本页 0 条`);
     }
+    let added = 0;
     for (const { href, title } of chunk.links) {
       if (byHref.has(href)) continue;
       byHref.set(href, title);
       ordered.push({ href, title });
+      added++;
     }
+    return added;
   };
+
+  return { visitList, ordered };
+}
+
+async function discoverChaptersBookTemplate(page, entryUrl) {
+  const root = bookCatalogRootUrl(entryUrl);
+  const bookId = bookIdFromUrl(entryUrl);
+  const { visitList, ordered } = createCatalogVisitor(page);
 
   await visitList(root);
 
@@ -171,11 +246,99 @@ async function discoverChapters(page, entryUrl) {
   return ordered;
 }
 
+/**
+ * 从 /html/{分类}/{书id}/{页}/ 只跑分页（也可直接传此类 URL 作为入口）。
+ */
+async function discoverChaptersHtmlPaginatedOnly(page, origin, categoryId, bookId) {
+  const { visitList, ordered } = createCatalogVisitor(page);
+  let stagnant = 0;
+  for (let pageNum = 1; pageNum <= MAX_HTML_CATALOG_PAGES; pageNum++) {
+    const listUrl = `${origin}/html/${categoryId}/${bookId}/${pageNum}/`;
+    const added = await visitList(listUrl);
+    if (added === 0) {
+      stagnant++;
+      if (stagnant >= HTML_CATALOG_EMPTY_STREAK) {
+        console.log(`[nzxs] html 目录连续 ${stagnant} 页无新章节链接，停止于页 ${pageNum}`);
+        break;
+      }
+    } else {
+      stagnant = 0;
+    }
+  }
+  return ordered;
+}
+
+async function discoverChaptersHtmlIndex(page, entryUrl) {
+  const u = new URL(entryUrl);
+  const folderId = htmlIndexFolderId(entryUrl);
+  if (!folderId) throw new Error(`非 nzxs html index URL: ${entryUrl}`);
+
+  const { visitList, ordered } = createCatalogVisitor(page);
+  await visitList(u.href.split('#')[0]);
+
+  const params = await findHtmlPaginatedCatalogParams(page, folderId);
+  if (!params) {
+    console.warn('[nzxs] 未找到 html 分页目录（查看更多章节），仅使用 index 页已采集链接');
+    return ordered;
+  }
+
+  const { categoryId, bookId } = params;
+  console.log(`[nzxs] html 分页目录: /html/${categoryId}/${bookId}/1/ …`);
+
+  let stagnant = 0;
+  for (let pageNum = 1; pageNum <= MAX_HTML_CATALOG_PAGES; pageNum++) {
+    const listUrl = `${u.origin}/html/${categoryId}/${bookId}/${pageNum}/`;
+    const added = await visitList(listUrl);
+    if (added === 0) {
+      stagnant++;
+      if (stagnant >= HTML_CATALOG_EMPTY_STREAK) {
+        console.log(`[nzxs] html 目录连续 ${stagnant} 页无新章节链接，停止于页 ${pageNum}`);
+        break;
+      }
+    } else {
+      stagnant = 0;
+    }
+  }
+
+  return ordered;
+}
+
+async function discoverChapters(page, entryUrl) {
+  const u = new URL(entryUrl);
+  const pathname = u.pathname;
+
+  if (/^\/book\/\d+/i.test(pathname)) {
+    return discoverChaptersBookTemplate(page, entryUrl);
+  }
+
+  if (/^\/html\/\d+\/index\.html$/i.test(pathname)) {
+    return discoverChaptersHtmlIndex(page, entryUrl);
+  }
+
+  const htmlCat = pathname.match(/^\/html\/(\d+)\/(\d+)\/(\d+)\/?$/i);
+  if (htmlCat) {
+    const categoryId = htmlCat[1];
+    const bookId = htmlCat[2];
+    console.log(`[nzxs] 入口为分页目录，将自第 1 页遍历 /html/${categoryId}/${bookId}/N/`);
+    return discoverChaptersHtmlPaginatedOnly(page, u.origin, categoryId, bookId);
+  }
+
+  throw new Error(
+    `非 nzxs 支持的目录 URL（需 /book/{id}/ 、 /html/{id}/index.html 或 /html/{分类}/{书id}/{页}/）: ${entryUrl}`
+  );
+}
+
 function parseChapterFileStem(chapterUrl) {
   const u = new URL(chapterUrl);
-  const m = u.pathname.match(/\/read\/(\d+)\/(\d+)(?:_(\d+))?\.html$/i);
-  if (!m) return null;
-  return { bookNum: m[1], baseId: m[2], origin: u.origin, suffix: m[3] };
+  let m = u.pathname.match(/^\/read\/(\d+)\/(\d+)(?:_(\d+))?\.html$/i);
+  if (m) {
+    return { mode: 'read', origin: u.origin, bookNum: m[1], baseId: m[2], suffix: m[3] };
+  }
+  m = u.pathname.match(/^\/reads\/(\d+)\/(\d+)\/(\d+)(?:_(\d+))?\.html$/i);
+  if (m) {
+    return { mode: 'reads', origin: u.origin, categoryId: m[1], bookNum: m[2], baseId: m[3], suffix: m[4] };
+  }
+  return null;
 }
 
 function stripAdLines(text) {
@@ -217,15 +380,25 @@ async function extractChapterPlainText(page, chapterUrl) {
   if (!stem) {
     return extractOneTxtScreen(page, chapterUrl);
   }
-  const { origin, bookNum, baseId } = stem;
+  const { origin, mode, baseId } = stem;
   const parts = [];
   let prevPageNum = 0;
 
-  for (let i = 0; ; i++) {
-    const url =
-      i === 0
+  const chapterPageUrl = (i) => {
+    if (mode === 'read') {
+      const { bookNum } = stem;
+      return i === 0
         ? `${origin}/read/${bookNum}/${baseId}.html`
         : `${origin}/read/${bookNum}/${baseId}_${i}.html`;
+    }
+    const { categoryId, bookNum } = stem;
+    return i === 0
+      ? `${origin}/reads/${categoryId}/${bookNum}/${baseId}.html`
+      : `${origin}/reads/${categoryId}/${bookNum}/${baseId}_${i}.html`;
+  };
+
+  for (let i = 0; ; i++) {
+    const url = chapterPageUrl(i);
 
     await page.goto(url, GOTO_OPTS);
     await page.waitForSelector(CONTENT_SEL, { timeout: 25000 }).catch(() => null);
