@@ -1,4 +1,5 @@
 node_modules/
+web/client/dist/
 novel-output/
 .env
 .env.*

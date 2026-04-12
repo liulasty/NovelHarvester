@@ -4,6 +4,9 @@
   "description": "",
   "main": "novel-workflow.js",
   "scripts": {
+    "dev:web": "concurrently -k \"node web/server/index.js\" \"vite --config web/client/vite.config.js\"",
+    "build:web": "vite build --config web/client/vite.config.js",
+    "start:web": "node web/server/index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "scrape": "node gaode/book18/scrape-novel.js \"https://www.book18.org/zh-hans/chapters/%E6%80%A7%E5%A5%B4%E8%AE%AD%E7%BB%83%E5%AD%A6%E5%9B%AD\" --out-dir=novel-output/xnl",
     "scrape:merge": "node gaode/book18/scrape-novel.js \"https://www.book18.org/zh-hans/chapters/%E6%80%A7%E5%A5%B4%E8%AE%AD%E7%BB%83%E5%AD%A6%E5%9B%AD\" --out-dir=novel-output/xnl --merge",
@@ -18,9 +21,16 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@playwright/cli": "^0.1.6"
+    "@playwright/cli": "^0.1.6",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "vite": "^6.0.7"
   },
   "dependencies": {
-    "playwright": "^1.60.0-alpha-1775584683000"
+    "express": "^4.21.2",
+    "playwright": "^1.60.0-alpha-1775584683000",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.1.1"
   }
 }

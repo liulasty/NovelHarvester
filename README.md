@@ -6,7 +6,7 @@ Playwright-based tooling to **discover chapter lists**, **scrape chapter text** 
 
 **Requirements:** Node.js (LTS), `npm install`, and `npx playwright install` if browsers are missing.
 
-**Quick start:** `npm run workflow` (interactive), or `node novel-workflow.js <target-id> [max-chapters]`. See `package.json` for other scripts.
+**Quick start:** `npm run workflow` (interactive), or `node novel-workflow.js <target-id> [max-chapters]`. Optional local UI: `npm run dev:web`. See `package.json` for other scripts.
 
 **License:** ISC (see `package.json`).
 
@@ -81,7 +81,8 @@ gaode/
 | `urlFile` | 本地章节 URL 列表文件（每行一个 http 链接） |
 | `outputDir` | 书籍根目录，如 `novel-output/xnl`（其下会自动使用 `chapters/`、`merged/`） |
 | `mergeTitle` | 合并文件抬头书名（可空） |
-| `scraper` | 可选：与 `novel-workflow.js` 中 `SCRAPER_TO_SCRIPT` 键一致，如 `shuwen6`、`diyibanzhu`、`nzxs`、`bookszw`、`69xku`、`book18`（缺省为 `book18`） |
+| `scraper` | 可选：与 `novel-workflow.js` 中 `SCRAPER_TO_SCRIPT` 键一致，如 `shuwen6`、`diyibanzhu`、`nzxs`、`bookszw`、`69xku`、`9ksw`、`book18`（缺省为 `book18`） |
+| `enabled` | 可选：设为 `false` 时 Web 控制台不可启动该目标（列表仍可显示为灰显）；缺省为 `true`。`novel-workflow.js list` 会标注 `(disabled)`；仍可用 `node novel-workflow.js <id>` 直接指定 id 运行 |
 
 已配置 book18 书目示例：`xnl`（训练学园）、`xiaohua-xyz`（校花的许愿珠）；第一版主示例：`diyibanzhu-xzduo`（`scraper`: `diyibanzhu`）；nzxs 示例：`nzxs-xsz`（`scraper`: `nzxs`）；bookszw 示例：`bookszw-22313`（`scraper`: `bookszw`）；69库示例：`x69ku-49851`（`scraper`: `69xku`）。
 
@@ -108,6 +109,9 @@ gaode/
 | `npm run scrape:merge` | 按 package 内默认目录页抓取并合并（输出到 `novel-output/xnl`） |
 | `npm run merge` | 仅合并，输入目录 `novel-output/xnl` |
 | `npm run scrape:file` | 从 `chapters_urls.txt` 读 URL，输出到 `novel-output/local` |
+| `npm run dev:web` | 并行启动本机 Web：API（`127.0.0.1:3001`）+ Vite 前端（默认 `5173`，`/api` 代理到前者） |
+| `npm run build:web` | 构建前端到 `web/client/dist/` |
+| `npm run start:web` | 生产模式：仅 `node web/server/index.js`；若已执行 `build:web` 则同进程托管静态页与 `/api`（默认 `http://127.0.0.1:3001`） |
 
 直接调用脚本时：
 
@@ -123,10 +127,29 @@ node merge-novel.js --dir=novel-output/xnl --title=书名
 node novel-workflow.js xnl 5
 ```
 
+## Web 控制台（Dashboard）
+
+本仓库提供**仅本机**使用的 Web 控制台（React + Vite + Express），用于：
+
+- 读写根目录 **`novel-targets.json`**（校验、临时文件、`novel-targets.json.bak` 备份、`rename` 原子替换；与 CLI **共用**同一文件）；
+- 按目标 **spawn** 与 `novel-workflow.js` 一致的 `node <各站脚本> …` 子进程，**最多 3 路并发**、超出 **FIFO 排队**，每任务独立 **SSE** 日志流与停止按钮；
+- 在 **`novel-targets.json` 中全部 `outputDir` 白名单** 下列目录、预览文本（有大小限制）与下载。
+
+**开发与生产：**
+
+1. **开发：** `npm run dev:web` — 浏览器打开 Vite 终端提示的地址（一般为 `http://127.0.0.1:5173`）。API 监听 **`127.0.0.1:3001`**（可用环境变量 `NOVEL_WEB_PORT`、`NOVEL_WEB_HOST` 修改）。
+2. **生产：** 先 `npm run build:web`，再 `npm run start:web` — 单进程提供 `/api` 与已构建的前端（需已生成 `web/client/dist/index.html`）。
+
+**约定与安全：** 控制面默认只绑定 **`127.0.0.1`**；与 CLI 同时编辑配置时**最后写入者覆盖**，界面内有常驻提示；任务状态仅内存维护，服务重启不恢复。完整信息架构、组件划分与 API 清单见 **[`docs/novel-web-dashboard.md`](docs/novel-web-dashboard.md)**。
+
+若出现 **`EADDRINUSE`（端口 3001 已被占用）**，通常是 **`npm run dev:web` 仍在运行**（其中已包含 API 进程）。请先停掉该终端里的 dev:web，或改用 **`NOVEL_WEB_PORT`** 换端口；若仅跑 Vite、API 改端口，请同步修改 `web/client/vite.config.js` 里 `/api` 的 `proxy.target`。
+
 ## 环境变量（可选）
 
 | 变量 | 作用 |
 |------|------|
+| `NOVEL_WEB_PORT` | Web API / 生产同源端口（默认 `3001`，见 `web/server/index.js`） |
+| `NOVEL_WEB_HOST` | Web API 监听地址（默认 `127.0.0.1`） |
 | `NOVEL_OUTPUT_DIR` | 默认书籍根目录（脚本内 `--out-dir=` 优先） |
 | `NOVEL_URL_FILE` | 默认章节 URL 列表文件名 |
 | `BOOK18_CHAPTERS_URL` | book18：未传参时的默认章节目录页（见 [gaode/book18/说明文档.md](gaode/book18/说明文档.md)） |
@@ -147,6 +170,7 @@ node novel-workflow.js xnl 5
 | 路径 | 内容 |
 |------|------|
 | 项目根 | `novel-workflow.js`、`merge-novel.js`、`novel-targets.json`、`package.json`、**`README.md`**（本文件：项目级说明与索引）；入口脚本与编排保持扁平，便于 `node …` 调用。 |
+| `web/` | 本机 Web 控制台：`web/server`（Express `/api`）、`web/client`（Vite + React）；说明见上文 **Web 控制台** 与 [`docs/novel-web-dashboard.md`](docs/novel-web-dashboard.md)。 |
 | `gaode/<站点>/` | 各站抓取脚本、**`说明文档.md`**（本站细节）、站点专用配置（如书文 `timg-map.json`）。 |
 | `gaode/shuwen6/reference/` | 可选：从书文站保存的页面脚本片段（如 `_chapter.js`），仅供对照 `.wen` / 前端逻辑，**不参与**运行时 `require`（亦见 [gaode/shuwen6/说明文档.md](gaode/shuwen6/说明文档.md)）。 |
 | `novel-output/<书籍>/` | 抓取产物（分章、`merged/`、`chapters_manifest.json`、`failed_chapters.json`）；大体积，建议勿纳入版本库（见根目录 `.gitignore`）。 |

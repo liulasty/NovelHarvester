@@ -44,7 +44,8 @@ function printTargets(targets) {
   targets.forEach((t, i) => {
     const src = t.chaptersListUrl ? '目录页' : `文件 ${t.urlFile}`;
     const eng = t.scraper ? ` [${t.scraper}]` : '';
-    console.log(`  [${i + 1}] ${t.id}  —  ${t.label}${eng}  (${src} → ${t.outputDir})`);
+    const dis = t.enabled === false ? ' (disabled)' : '';
+    console.log(`  [${i + 1}] ${t.id}  —  ${t.label}${eng}${dis}  (${src} → ${t.outputDir})`);
   });
 }
 
