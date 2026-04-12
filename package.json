@@ -12,7 +12,7 @@
     "scrape:sidebar": "node gaode/book18/scrape-novel.js https://www.book18.org/zh-hans/38604 --out-dir=novel-output/xnl",
     "workflow": "node novel-workflow.js",
     "workflow:list": "node novel-workflow.js list",
-    "scrape:shuwen6": "node gaode/shuwen6/scrape-shuwen6.js \"https://m.shuwen6.cc/xs/AjMk/ml.html\" --out-dir=novel-output/shuwen6-AjMk --merge --merge-title=性奴训练学园(H)"
+    "scrape:shuwen6": "node gaode/shuwen6/scrape-shuwen6.js \"https://m.shuwen6.cc/xs/AjMk/ml.html\" --out-dir=novel-output/shuwen6-AjMk --merge --merge-title=训练学园"
   },
   "keywords": [],
   "author": "",

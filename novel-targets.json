@@ -52,6 +52,14 @@
       "chaptersListUrl": "http://www.bookszw.com/22/22313/",
       "outputDir": "novel-output/bookszw-22-22313",
       "mergeTitle": "九阳帝尊"
+    },
+    {
+      "id": "x69ku-49851",
+      "label": "69xku.com book/49851（69库 最新/全书目录）",
+      "scraper": "69xku",
+      "chaptersListUrl": "https://69xku.com/book/49851/",
+      "outputDir": "novel-output/x69ku-49851",
+      "mergeTitle": "母女宠物饲养日记"
     }
   ]
 }

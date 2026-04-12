@@ -1,0 +1,160 @@
+# my-pw-project
+
+Playwright-based tooling to **discover chapter lists**, **scrape chapter text** from several Chinese novel sites, and **merge** chapters into one file per book.
+
+**Project-wide conventions, directory layout, and commands** are documented below in **Chinese** (this file replaces the former root `说明文档.md`). Per-site selectors and flags remain in each **`gaode/<site>/说明文档.md`**.
+
+**Requirements:** Node.js (LTS), `npm install`, and `npx playwright install` if browsers are missing.
+
+**Quick start:** `npm run workflow` (interactive), or `node novel-workflow.js <target-id> [max-chapters]`. See `package.json` for other scripts.
+
+**License:** ISC (see `package.json`).
+
+---
+
+# 项目说明（中文）
+
+基于 Playwright 的小说抓取与合并工具；各站实现见 **`gaode/<站点>/`** 及各站目录内 **`说明文档.md`**。**项目级约定、目录索引与常用命令均以本 `README.md` 为准**（原根目录独立文件 `说明文档.md` 已合并至此，该文件名仅保留跳转）。每个书籍目标使用独立子目录，**分章文本**与**合并全文**分开放置，避免与元数据混在同一层目录。
+
+## 目录结构约定
+
+项目根目录存放脚本与配置；抓取结果放在 `novel-output/` 下，按「书籍 id」分子文件夹：
+
+```
+novel-output/
+├── <书籍 id>/                 # 例如 xnl、local（与 novel-targets.json 中 outputDir 一致）
+│   ├── chapters_manifest.json # 从目录页解析出的章节列表（仅网络发现模式会写入）
+│   ├── chapters/              # 分章：001_标题.txt、002_标题.txt …
+│   └── merged/                # 合并：全文合并.txt
+└── …
+```
+
+- **chapters/**：仅存放按序号命名的分章 `.txt`。
+- **merged/**：仅存放合并后的 `全文合并.txt`（可用 `--out=` 指定其他路径）。
+- 若历史上曾把分章直接放在书籍根目录（无 `chapters/`），`merge-novel.js` 仍会尝试从根目录读取，便于过渡旧数据。
+
+## `gaode/` 各站脚本目录
+
+不同网站的抓取逻辑放在 **`gaode/<网站标识>/`** 下，与项目根目录的通用合并脚本 `merge-novel.js`、编排入口 `novel-workflow.js` 分离。
+
+```
+gaode/
+├── book18/
+│   ├── 说明文档.md
+│   └── scrape-novel.js
+├── diyibanzhu/
+│   ├── 说明文档.md
+│   └── scrape-diyibanzhu.js
+├── shuwen6/
+│   ├── 说明文档.md
+│   ├── scrape-shuwen6.js
+│   └── timg-map.json        # 可选：TImg 图片 src → 单字映射（见 gaode/shuwen6/说明文档.md）
+├── nzxs/
+│   ├── 说明文档.md
+│   └── scrape-nzxs.js
+├── bookszw/
+│   ├── 说明文档.md
+│   └── scrape-bookszw.js
+└── 69xku/
+    ├── 说明文档.md
+    └── scrape-69xku.js
+```
+
+**新增网站时：**
+
+1. 在 `gaode/` 下新建子目录（建议用小写域名简称，如 `example`）。
+2. 放入该站的抓取入口脚本（需 `require` 项目根目录的 `merge-novel.js`：`path.join(__dirname, '..', '..', 'merge-novel.js')`）。
+3. 在 **`gaode/<站点>/说明文档.md`** 中写明目录页、正文、分页、解码与注意事项（与脚本同源维护）。
+4. 在 `novel-workflow.js` 的 **`SCRAPER_TO_SCRIPT`** 中增加一行：`站点标识: path.join(__dirname, 'gaode', '站点目录', '脚本名.js')`。
+5. 在 `novel-targets.json` 的目标里把 **`scraper`** 设为该站点标识。
+6. 在本 **`README.md`** 的「各站实现细节」表中增加指向该站 `说明文档.md` 的链接。
+
+## 配置文件 `novel-targets.json`
+
+定义多个抓取目标，供 `novel-workflow.js` 使用：
+
+| 字段 | 含义 |
+|------|------|
+| `id` | 目标标识，命令行可选用 `node novel-workflow.js <id>` |
+| `label` | 说明文字 |
+| `chaptersListUrl` | 站内涵盖章节目录页 URL（与 `urlFile` 二选一） |
+| `urlFile` | 本地章节 URL 列表文件（每行一个 http 链接） |
+| `outputDir` | 书籍根目录，如 `novel-output/xnl`（其下会自动使用 `chapters/`、`merged/`） |
+| `mergeTitle` | 合并文件抬头书名（可空） |
+| `scraper` | 可选：与 `novel-workflow.js` 中 `SCRAPER_TO_SCRIPT` 键一致，如 `shuwen6`、`diyibanzhu`、`nzxs`、`bookszw`、`69xku`、`book18`（缺省为 `book18`） |
+
+已配置 book18 书目示例：`xnl`（性奴训练学园）、`xiaohua-xyz`（校花的许愿珠）；第一版主示例：`diyibanzhu-xzduo`（`scraper`: `diyibanzhu`）；nzxs 示例：`nzxs-xsz`（`scraper`: `nzxs`）；bookszw 示例：`bookszw-22313`（`scraper`: `bookszw`）；69库示例：`x69ku-49851`（`scraper`: `69xku`）。
+
+## 各站实现细节（`gaode/<站点>/说明文档.md`）
+
+各域名下的 **目录/正文选择器、分页、解码、失败记录、playwright-cli 示例** 等，统一写在对应目录的 **`说明文档.md`**，与抓取脚本同路径维护。
+
+| 站点 | 文档 |
+|------|------|
+| book18.org | [gaode/book18/说明文档.md](gaode/book18/说明文档.md) |
+| diyibanzhu.quest（第一版主） | [gaode/diyibanzhu/说明文档.md](gaode/diyibanzhu/说明文档.md) |
+| m.shuwen6.cc 书文 | [gaode/shuwen6/说明文档.md](gaode/shuwen6/说明文档.md) |
+| www.nzxs.cc（女主小说） | [gaode/nzxs/说明文档.md](gaode/nzxs/说明文档.md) |
+| www.bookszw.com | [gaode/bookszw/说明文档.md](gaode/bookszw/说明文档.md) |
+| 69xku.com（69库） | [gaode/69xku/说明文档.md](gaode/69xku/说明文档.md) |
+
+## 常用命令
+
+| 命令 | 说明 |
+|------|------|
+| `npm run workflow` | 交互选择目标后抓取并合并 |
+| `npm run workflow:list` | 仅列出目标 |
+| `node novel-workflow.js xnl` | 直接跑 id 为 `xnl` 的目标 |
+| `npm run scrape:merge` | 按 package 内默认目录页抓取并合并（输出到 `novel-output/xnl`） |
+| `npm run merge` | 仅合并，输入目录 `novel-output/xnl` |
+| `npm run scrape:file` | 从 `chapters_urls.txt` 读 URL，输出到 `novel-output/local` |
+
+直接调用脚本时：
+
+```bash
+node gaode/book18/scrape-novel.js <目录页URL> --out-dir=novel-output/xnl --merge
+node gaode/shuwen6/scrape-shuwen6.js https://m.shuwen6.cc/xs/示例/ml.html --out-dir=novel-output/某书 --merge
+node merge-novel.js --dir=novel-output/xnl --title=书名
+```
+
+试跑前 N 章：在 URL 后加数字，例如：
+
+```bash
+node novel-workflow.js xnl 5
+```
+
+## 环境变量（可选）
+
+| 变量 | 作用 |
+|------|------|
+| `NOVEL_OUTPUT_DIR` | 默认书籍根目录（脚本内 `--out-dir=` 优先） |
+| `NOVEL_URL_FILE` | 默认章节 URL 列表文件名 |
+| `BOOK18_CHAPTERS_URL` | book18：未传参时的默认章节目录页（见 [gaode/book18/说明文档.md](gaode/book18/说明文档.md)） |
+| `DIYIBANZHU_CHAPTERS_URL` | 第一版主：默认目录页（见 [gaode/diyibanzhu/说明文档.md](gaode/diyibanzhu/说明文档.md)） |
+| `SHUWEN6_ML_URL` | 书文：未传参时的目录页 URL（见 [gaode/shuwen6/说明文档.md](gaode/shuwen6/说明文档.md)） |
+
+## 依赖与浏览器
+
+- 依赖见 `package.json`（`playwright`）。
+- 首次使用需安装依赖并确保 Playwright 浏览器可用（按官方文档执行 `npx playwright install` 等）。
+
+## Cursor Skill（新站适配）
+
+仓库内技能说明：`.cursor/skills/novel-scraper-site-adapter/SKILL.md`（工作流清单、注册步骤、常见坑、**先根据爬取日志与失败记录分类异常，再决定是否用 playwright-cli**）。在新会话中适配陌生小说站或排错书文 TImg / `.wen` 时，可让助手读取该文件以保持与现有 `gaode/` 结构一致。
+
+## 仓库目录约定（分治）
+
+| 路径 | 内容 |
+|------|------|
+| 项目根 | `novel-workflow.js`、`merge-novel.js`、`novel-targets.json`、`package.json`、**`README.md`**（本文件：项目级说明与索引）；入口脚本与编排保持扁平，便于 `node …` 调用。 |
+| `gaode/<站点>/` | 各站抓取脚本、**`说明文档.md`**（本站细节）、站点专用配置（如书文 `timg-map.json`）。 |
+| `gaode/shuwen6/reference/` | 可选：从书文站保存的页面脚本片段（如 `_chapter.js`），仅供对照 `.wen` / 前端逻辑，**不参与**运行时 `require`（亦见 [gaode/shuwen6/说明文档.md](gaode/shuwen6/说明文档.md)）。 |
+| `novel-output/<书籍>/` | 抓取产物（分章、`merged/`、`chapters_manifest.json`、`failed_chapters.json`）；大体积，建议勿纳入版本库（见根目录 `.gitignore`）。 |
+| `.cursor/skills/` | Cursor 技能说明（适配流程、手段库演进）。 |
+
+## 其他文件说明
+
+- `chapters_urls.txt`：本地章节链接列表（须放在**项目根目录**；支持 UTF-8 或 Windows 记事本「UTF-16 LE」保存），供 `--file` 或 `novel-targets.json` 中 `urlFile` 使用。
+- `download.js`：兼容入口，等价于转发参数给 `gaode/book18/scrape-novel.js`。
+- `gaode/shuwen6/scrape-shuwen6.js`：书文小说网 m 站专用抓取脚本；**站点细节**见 [gaode/shuwen6/说明文档.md](gaode/shuwen6/说明文档.md)。
+- `novel-output/<书籍>/failed_chapters.json`：由书文脚本等写入的失败/劣化章节索引（见 [gaode/shuwen6/说明文档.md](gaode/shuwen6/说明文档.md)）；**手段库与适配约定**还可对照 `.cursor/skills/novel-scraper-site-adapter/SKILL.md`、`.cursor/skills/novel-scraper-playbook-evolution/SKILL.md`。

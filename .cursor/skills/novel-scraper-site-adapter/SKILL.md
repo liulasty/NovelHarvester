@@ -49,7 +49,7 @@ Playwright 打开真实浏览器
    `node novel-workflow.js <新id> 3` 只拉 3 章，检查 `chapters/` 字数与 `merged/全文合并.txt`。
 
 6. **文档**  
-   在 **`gaode/<站点>/说明文档.md`** 中写明目录、正文、分页、解码与注意事项；根目录 **`说明文档.md`** 仅保留通用约定，并在「各站实现细节」表中增加指向该文件的链接。
+   在 **`gaode/<站点>/说明文档.md`** 中写明目录、正文、分页、解码与注意事项；根目录 **`README.md`** 中维护通用约定，并在「各站实现细节」表中增加指向该站 `说明文档.md` 的链接。
 
 ## 与现有站点对齐的约定
 
@@ -110,7 +110,7 @@ Playwright 打开真实浏览器
 - `gaode/shuwen6/scrape-shuwen6.js`：目录分页 + AJAX 正文 + 章内「下页」+ **`.wen` / `_txt_call` 优先** + `timg-map.json` 兜底  
 - `gaode/shuwen6/timg-map.json`：TImg `src` → 单字（可选；`.wen` 成功时本章可不依赖）  
 - `merge-novel.js`：`chapters/` 优先，默认 `merged/全文合并.txt`  
-- `说明文档.md`（项目根）：通用约定；各站细节见 **`gaode/<站点>/说明文档.md`**
+- `README.md`（项目根）：通用约定与索引；各站细节见 **`gaode/<站点>/说明文档.md`**
 
 ## 常见坑
 
@@ -122,4 +122,4 @@ Playwright 打开真实浏览器
 
 ## 相关：手段库演进
 
-若需约定「如何持续新增兜底与记录知识、何时扩充 skill／说明文档、与其他自动化栈的边界」，见 `.cursor/skills/novel-scraper-playbook-evolution/SKILL.md`。
+若需约定「如何持续新增兜底与记录知识、何时扩充 skill／根目录 README、与其他自动化栈的边界」，见 `.cursor/skills/novel-scraper-playbook-evolution/SKILL.md`。
