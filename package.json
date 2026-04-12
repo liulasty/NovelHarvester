@@ -1,0 +1,26 @@
+{
+  "name": "my-pw-project",
+  "version": "1.0.0",
+  "description": "",
+  "main": "novel-workflow.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "scrape": "node gaode/book18/scrape-novel.js \"https://www.book18.org/zh-hans/chapters/%E6%80%A7%E5%A5%B4%E8%AE%AD%E7%BB%83%E5%AD%A6%E5%9B%AD\" --out-dir=novel-output/xnl",
+    "scrape:merge": "node gaode/book18/scrape-novel.js \"https://www.book18.org/zh-hans/chapters/%E6%80%A7%E5%A5%B4%E8%AE%AD%E7%BB%83%E5%AD%A6%E5%9B%AD\" --out-dir=novel-output/xnl --merge",
+    "merge": "node merge-novel.js --dir=novel-output/xnl",
+    "scrape:file": "node gaode/book18/scrape-novel.js --file --out-dir=novel-output/local",
+    "scrape:sidebar": "node gaode/book18/scrape-novel.js https://www.book18.org/zh-hans/38604 --out-dir=novel-output/xnl",
+    "workflow": "node novel-workflow.js",
+    "workflow:list": "node novel-workflow.js list",
+    "scrape:shuwen6": "node gaode/shuwen6/scrape-shuwen6.js \"https://m.shuwen6.cc/xs/AjMk/ml.html\" --out-dir=novel-output/shuwen6-AjMk --merge --merge-title=性奴训练学园(H)"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/cli": "^0.1.6"
+  },
+  "dependencies": {
+    "playwright": "^1.60.0-alpha-1775584683000"
+  }
+}

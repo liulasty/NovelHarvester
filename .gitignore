@@ -1,0 +1,15 @@
+node_modules/
+novel-output/
+.env
+.env.*
+*.log
+.playwright-cli/
+# 本地登录态（若用手动 playwright-cli state-save 生成，勿提交）
+auth.json
+# OS
+.DS_Store
+Thumbs.db
+
+# idea
+.idea/
+.idea

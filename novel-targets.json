@@ -1,0 +1,57 @@
+{
+  "targets": [
+    {
+      "id": "xnl",
+      "label": "性奴训练学园（站内涵盖章节目录）",
+      "chaptersListUrl": "https://www.book18.org/zh-hans/chapters/%E6%80%A7%E5%A5%B4%E8%AE%AD%E7%BB%83%E5%AD%A6%E5%9B%AD",
+      "outputDir": "novel-output/xnl",
+      "mergeTitle": "性奴训练学园"
+    },
+    {
+      "id": "xiaohua-xyz",
+      "label": "校花的许愿珠（book18 章节目录）",
+      "chaptersListUrl": "https://www.book18.org/zh-hans/chapters/%E6%A0%A1%E8%8A%B1%E7%9A%84%E8%AE%B8%E6%84%BF%E7%8F%A0",
+      "outputDir": "novel-output/xiaohua-xyz",
+      "mergeTitle": "校花的许愿珠"
+    },
+    {
+      "id": "shuwen6-xnl",
+      "label": "书文小说网 性奴训练学园（m 站目录 ml）",
+      "scraper": "shuwen6",
+      "chaptersListUrl": "https://m.shuwen6.cc/xs/AjMk/ml.html",
+      "outputDir": "novel-output/shuwen6-AjMk",
+      "mergeTitle": "性奴训练学园(H)"
+    },
+    {
+      "id": "diyibanzhu-xzduo",
+      "label": "第一版主 diyibanzhu.quest 仙姝堕（list 目录）",
+      "scraper": "diyibanzhu",
+      "chaptersListUrl": "https://www.diyibanzhu.quest/list/24595.html",
+      "outputDir": "novel-output/diyibanzhu-24595",
+      "mergeTitle": "仙姝堕"
+    },
+    {
+      "id": "local",
+      "label": "本地章节 URL 列表（chapters_urls.txt）",
+      "urlFile": "chapters_urls.txt",
+      "outputDir": "novel-output/local",
+      "mergeTitle": ""
+    },
+    {
+      "id": "nzxs-xsz",
+      "label": "nzxs.cc 仙姝墮（书籍页 + 阅读更多章节目录）",
+      "scraper": "nzxs",
+      "chaptersListUrl": "https://www.nzxs.cc/book/352626/",
+      "outputDir": "novel-output/nzxs-352626",
+      "mergeTitle": "仙姝墮"
+    },
+    {
+      "id": "bookszw-22313",
+      "label": "bookszw.com 22/22313（笔趣阁目录 #list）",
+      "scraper": "bookszw",
+      "chaptersListUrl": "http://www.bookszw.com/22/22313/",
+      "outputDir": "novel-output/bookszw-22-22313",
+      "mergeTitle": "九阳帝尊"
+    }
+  ]
+}
