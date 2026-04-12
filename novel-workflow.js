@@ -22,6 +22,7 @@ const SCRAPER_TO_SCRIPT = {
   nzxs: path.join(__dirname, 'gaode', 'nzxs', 'scrape-nzxs.js'),
   bookszw: path.join(__dirname, 'gaode', 'bookszw', 'scrape-bookszw.js'),
   '69xku': path.join(__dirname, 'gaode', '69xku', 'scrape-69xku.js'),
+  '9ksw': path.join(__dirname, 'gaode', '9ksw', 'scrape-9ksw.js'),
 };
 
 function loadConfig() {

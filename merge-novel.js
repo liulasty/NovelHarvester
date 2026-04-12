@@ -4,7 +4,7 @@
  *
  *   node merge-novel.js
  *   node merge-novel.js --out=D:\path\自定义名.txt
- *   node merge-novel.js --dir=novel-output/xnl --title=性奴训练学园
+ *   node merge-novel.js --dir=novel-output/xnl --title=训练学园
  */
 
 const fs = require('fs');

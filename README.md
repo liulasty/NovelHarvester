@@ -83,7 +83,7 @@ gaode/
 | `mergeTitle` | 合并文件抬头书名（可空） |
 | `scraper` | 可选：与 `novel-workflow.js` 中 `SCRAPER_TO_SCRIPT` 键一致，如 `shuwen6`、`diyibanzhu`、`nzxs`、`bookszw`、`69xku`、`book18`（缺省为 `book18`） |
 
-已配置 book18 书目示例：`xnl`（性奴训练学园）、`xiaohua-xyz`（校花的许愿珠）；第一版主示例：`diyibanzhu-xzduo`（`scraper`: `diyibanzhu`）；nzxs 示例：`nzxs-xsz`（`scraper`: `nzxs`）；bookszw 示例：`bookszw-22313`（`scraper`: `bookszw`）；69库示例：`x69ku-49851`（`scraper`: `69xku`）。
+已配置 book18 书目示例：`xnl`（训练学园）、`xiaohua-xyz`（校花的许愿珠）；第一版主示例：`diyibanzhu-xzduo`（`scraper`: `diyibanzhu`）；nzxs 示例：`nzxs-xsz`（`scraper`: `nzxs`）；bookszw 示例：`bookszw-22313`（`scraper`: `bookszw`）；69库示例：`x69ku-49851`（`scraper`: `69xku`）。
 
 ## 各站实现细节（`gaode/<站点>/说明文档.md`）
 

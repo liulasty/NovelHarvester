@@ -5,6 +5,13 @@
  *    合并规则与 bookszw 类似：正文区按章号排序；仅出现在最新区且不在全书的链接排在 manifest 末尾。
  * 3) 正文：`#rtext` / `.readcontent`（在 `#acontent` 内）
  *
+ * 遇 Cloudflare / 人机验证：无头模式易被拦。请使用有头浏览器或已保存的登录态：
+ *   CMD: set NOVEL_HEADLESS=0
+ *   PowerShell: $env:NOVEL_HEADLESS = "0"
+ *   或 set X69KU_HEADED=1 / $env:X69KU_HEADED = "1"
+ * 可选：X69KU_STORAGE_STATE=路径 → playwright storageState JSON
+ * 可选：X69KU_CHALLENGE_TIMEOUT_MS（默认 120000）目录/正文等待验证通过的最长时间
+ *
  * 用法：
  *   node gaode/69xku/scrape-69xku.js https://69xku.com/book/49851/
  *   node gaode/69xku/scrape-69xku.js https://69xku.com/book/49851/ 5
@@ -13,70 +20,192 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
+const { chineseNumeralToInt } = require(path.join(__dirname, '..', 'lib', 'chinese-numeral.js'));
 
 const MERGE_NOVEL = path.join(__dirname, '..', '..', 'merge-novel.js');
 const PROJECT_ROOT = path.join(__dirname, '..', '..');
 
-const GOTO_OPTS = { waitUntil: 'domcontentloaded', timeout: 90000 };
-const CONTENT_SELECTORS = ['#rtext', '.readcontent', '#chaptercontent', '#content'];
+const GOTO_OPTS = { waitUntil: 'domcontentloaded', timeout: 120000 };
+const GOTO_FALLBACK_OPTS = { waitUntil: 'load', timeout: 120000 };
+const CONTENT_SELECTORS = ['#rtext', '.readcontent', '#acontent', '#chaptercontent', '#content'];
+const MIN_CHAPTER_BODY_CHARS = 40;
 
-const CN_DIGIT = {
-  零: 0,
-  一: 1,
-  二: 2,
-  两: 2,
-  三: 3,
-  四: 4,
-  五: 5,
-  六: 6,
-  七: 7,
-  八: 8,
-  九: 9,
-};
+function useHeadedLaunch() {
+  return process.env.NOVEL_HEADLESS === '0' || process.env.X69KU_HEADED === '1';
+}
 
-function chineseNumeralToInt(str) {
-  const s = String(str || '')
-    .replace(/\s+/g, '')
-    .replace(/廿/g, '二十')
-    .replace(/卅/g, '三十');
-  if (!s) return NaN;
-  let total = 0;
-  const wanParts = s.split('万');
-  const high = wanParts.length > 1 ? wanParts[0] : '';
-  const low = wanParts.length > 1 ? wanParts.slice(1).join('万') : s;
-  const parseSection = (sec) => {
-    if (!sec) return 0;
-    let n = 0;
-    let tmp = 0;
-    for (let i = 0; i < sec.length; i++) {
-      const c = sec[i];
-      if (CN_DIGIT[c] !== undefined) {
-        tmp = CN_DIGIT[c];
+function resolveStorageStatePath69() {
+  const s = process.env.X69KU_STORAGE_STATE?.trim();
+  if (!s) return null;
+  if (path.isAbsolute(s)) return s;
+  return path.join(PROJECT_ROOT, s);
+}
+
+/** CF 通过后整页跳转时 evaluate 可能落在导航中途 */
+function isTransientNavigationEvaluateError(e) {
+  const msg = e?.message || String(e);
+  return (
+    /Execution context was destroyed/i.test(msg) ||
+    /Target page, context or browser has been closed/i.test(msg) ||
+    /Navigation failed/i.test(msg) ||
+    /net::ERR_ABORTED/i.test(msg) ||
+    /most likely because of a navigation/i.test(msg)
+  );
+}
+
+async function gotoWithRetry(page, url, label, primaryOpts) {
+  const attempts = [
+    () => page.goto(url, primaryOpts),
+    () => page.goto(url, GOTO_FALLBACK_OPTS),
+    () => page.goto(url, primaryOpts),
+  ];
+  let lastErr;
+  for (let i = 0; i < attempts.length; i++) {
+    try {
+      await attempts[i]();
+      return;
+    } catch (e) {
+      lastErr = e;
+      const msg = e && e.message ? e.message : String(e);
+      const retryable = /ERR_ABORTED|Timeout|timeout|detached|Navigation/i.test(msg);
+      if (i < attempts.length - 1 && retryable) {
+        console.warn(`[69xku] goto ${label} 重试 (${i + 2}/${attempts.length}): ${msg.slice(0, 140)}`);
+        await page.waitForTimeout(1500 * (i + 1));
         continue;
       }
-      if (c === '十') {
-        n += (tmp || 1) * 10;
-        tmp = 0;
-      } else if (c === '百') {
-        n += (tmp || 1) * 100;
-        tmp = 0;
-      } else if (c === '千') {
-        n += (tmp || 1) * 1000;
-        tmp = 0;
-      } else {
-        return NaN;
-      }
+      throw e;
     }
-    return n + tmp;
-  };
-  if (high) {
-    const w = parseSection(high);
-    if (Number.isNaN(w)) return NaN;
-    total = w * 10000;
   }
-  const lowVal = parseSection(low);
-  if (Number.isNaN(lowVal)) return NaN;
-  return total + lowVal;
+  throw lastErr;
+}
+
+async function catalogReadyProbe69(page, loc) {
+  try {
+    return await page.evaluate(
+      ({ origin, bookId }) => {
+        const t = document.title || '';
+        if (/^Just a moment/i.test(t)) return { ok: false, reason: 'cf_title' };
+        const body = document.body?.innerText || '';
+        if (/正在进行安全验证|Enable JavaScript and cookies/i.test(body) && !/最新章节|章节目录|全部章节/.test(body)) {
+          return { ok: false, reason: 'cf_challenge' };
+        }
+        const re = new RegExp(`^/book/${bookId}/\\d+\\.html$`, 'i');
+        const hit = [...document.querySelectorAll('a[href]')].some((a) => {
+          try {
+            return re.test(new URL(a.getAttribute('href') || '', origin).pathname);
+          } catch {
+            return false;
+          }
+        });
+        return hit ? { ok: true } : { ok: false, reason: 'no_chapter_links' };
+      },
+      { origin: loc.origin, bookId: loc.bookId }
+    );
+  } catch (e) {
+    if (isTransientNavigationEvaluateError(e)) {
+      return { ok: false, reason: 'navigating' };
+    }
+    throw e;
+  }
+}
+
+async function waitForCatalogReady69(page, phase, loc) {
+  const timeout = parseInt(process.env.X69KU_CHALLENGE_TIMEOUT_MS || '120000', 10);
+  const pollMs = 2000;
+  const heartbeatSec = 8;
+  const start = Date.now();
+  let lastBeat = 0;
+  let warnedHeadlessCf = false;
+
+  console.log(
+    `[69xku] ${phase}: 等待章节链接（最长 ${Math.round(timeout / 1000)}s）。遇验证页请用 NOVEL_HEADLESS=0 完成人机校验。`
+  );
+
+  while (Date.now() - start < timeout) {
+    const probe = await catalogReadyProbe69(page, loc);
+    if (probe.ok) return;
+
+    const elapsed = (Date.now() - start) / 1000;
+    if (elapsed - lastBeat >= heartbeatSec) {
+      lastBeat = elapsed;
+      const title = (await page.title().catch(() => '')).slice(0, 70);
+      console.log(`[69xku] … 已等待 ${Math.floor(elapsed)}s | ${title || '(no title)'}`);
+    }
+
+    if (!warnedHeadlessCf && !useHeadedLaunch() && elapsed > 20 && probe.reason === 'cf_title') {
+      warnedHeadlessCf = true;
+      console.warn(
+        '[69xku] 仍停留在 Cloudflare「Just a moment」；无头模式通常无法通过。请 Ctrl+C 后设置 NOVEL_HEADLESS=0 再运行，或配置 X69KU_STORAGE_STATE。'
+      );
+    }
+
+    if (probe.reason === 'navigating') {
+      await page.waitForLoadState('domcontentloaded').catch(() => {});
+    }
+
+    await page.waitForTimeout(pollMs);
+  }
+
+  const title = await page.title().catch(() => '');
+  const msg = `[69xku] ${phase} 等待超时（title=${title.slice(0, 80)}）。请 NOVEL_HEADLESS=0 完成验证，或设置 X69KU_STORAGE_STATE。`;
+  console.warn(msg);
+  throw new Error(msg);
+}
+
+async function chapterBodyProbe69(page) {
+  try {
+    return await page.evaluate(
+      ({ selectors, minLen }) => {
+        if (/^Just a moment/i.test(document.title || '')) return { ok: false, reason: 'cf_title' };
+        for (const sel of selectors) {
+          const el = document.querySelector(sel);
+          if (el && (el.innerText || '').trim().length > minLen) return { ok: true, sel };
+        }
+        const ac = document.querySelector('#acontent');
+        if (ac && (ac.innerText || '').trim().length > minLen) return { ok: true, sel: '#acontent' };
+        return { ok: false, reason: 'no_body' };
+      },
+      { selectors: CONTENT_SELECTORS, minLen: MIN_CHAPTER_BODY_CHARS }
+    );
+  } catch (e) {
+    if (isTransientNavigationEvaluateError(e)) {
+      return { ok: false, reason: 'navigating' };
+    }
+    throw e;
+  }
+}
+
+async function waitForChapterBody69(page, phase) {
+  const timeout = parseInt(process.env.X69KU_CHALLENGE_TIMEOUT_MS || '120000', 10);
+  const pollMs = 2000;
+  const heartbeatSec = 8;
+  const start = Date.now();
+  let lastBeat = 0;
+
+  console.log(`[69xku] ${phase}: 等待正文容器（最长 ${Math.round(timeout / 1000)}s）…`);
+
+  while (Date.now() - start < timeout) {
+    const probe = await chapterBodyProbe69(page);
+    if (probe.ok) return;
+
+    const elapsed = (Date.now() - start) / 1000;
+    if (elapsed - lastBeat >= heartbeatSec) {
+      lastBeat = elapsed;
+      const title = (await page.title().catch(() => '')).slice(0, 70);
+      console.log(`[69xku] … 已等待 ${Math.floor(elapsed)}s | ${title || '(no title)'}`);
+    }
+
+    if (probe.reason === 'navigating') {
+      await page.waitForLoadState('domcontentloaded').catch(() => {});
+    }
+
+    await page.waitForTimeout(pollMs);
+  }
+
+  const title = await page.title().catch(() => '');
+  const msg = `[69xku] ${phase} 正文等待超时（title=${title.slice(0, 80)}）`;
+  console.warn(msg);
+  throw new Error(msg);
 }
 
 function chapterNumberFromTitle(title) {
@@ -260,7 +389,15 @@ async function extractChapterLinkSections(page, loc) {
         }
       }
 
-      return { main: dedupe(main), latest: dedupe(latest) };
+      let outMain = dedupe(main);
+      let outLatest = dedupe(latest);
+      if (outMain.length === 0 && outLatest.length === 0) {
+        const fb = [];
+        for (const a of document.querySelectorAll('a[href]')) pushValid(fb, a);
+        outMain = dedupe(fb);
+      }
+
+      return { main: outMain, latest: outLatest };
     },
     { origin: loc.origin, bookId: loc.bookId }
   );
@@ -272,8 +409,8 @@ async function discoverChapters(page, entryUrl) {
   const listUrl = catalogUrl(loc);
 
   console.log(`[69xku] 打开: ${listUrl}`);
-  await page.goto(listUrl, GOTO_OPTS);
-  await page.waitForSelector('dl.book.chapterlist, #list-chapterAll', { timeout: 60000 });
+  await gotoWithRetry(page, listUrl, '目录', GOTO_OPTS);
+  await waitForCatalogReady69(page, `目录 ${listUrl}`, loc);
 
   const chunk = await extractChapterLinkSections(page, loc);
   const nMain = chunk.main.length;
@@ -296,11 +433,22 @@ async function resolveContentSelector(page) {
 }
 
 async function extractChapterPlainText(page, chapterUrl) {
-  await page.goto(chapterUrl, GOTO_OPTS);
-  await page.waitForSelector(CONTENT_SELECTORS.join(','), { timeout: 45000 });
-  const sel = await resolveContentSelector(page);
-  await page.waitForSelector(sel, { timeout: 20000 });
-  const raw = await page.$eval(sel, (el) => el.innerText.trim());
+  const shortLabel = path.basename(new URL(chapterUrl).pathname);
+  await gotoWithRetry(page, chapterUrl, `正文 ${shortLabel}`, GOTO_OPTS);
+  await waitForChapterBody69(page, `正文 ${shortLabel}`);
+
+  const preferred = await resolveContentSelector(page);
+  const tryOrder = [...new Set([preferred, ...CONTENT_SELECTORS])];
+  let raw = '';
+  for (const sel of tryOrder) {
+    const h = await page.$(sel);
+    if (!h) continue;
+    raw = await h.evaluate((el) => el.innerText.trim()).catch(() => '');
+    if (raw.length >= MIN_CHAPTER_BODY_CHARS) break;
+  }
+  if (raw.length < MIN_CHAPTER_BODY_CHARS) {
+    throw new Error(`正文过短（${raw.length} 字），选择器可能已失效: ${chapterUrl}`);
+  }
   return stripAdLines(raw);
 }
 
@@ -324,8 +472,26 @@ async function main() {
     console.log('[69xku] --force：将覆盖已存在且大于 100 字节的章节 txt');
   }
 
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
+  const headed = useHeadedLaunch();
+  if (headed) {
+    console.log('[69xku] 使用有头浏览器（NOVEL_HEADLESS=0 或 X69KU_HEADED=1）');
+  }
+  const storageStatePath = resolveStorageStatePath69();
+  if (storageStatePath && fs.existsSync(storageStatePath)) {
+    console.log('[69xku] 使用 storageState:', storageStatePath);
+  }
+
+  const browser = await chromium.launch({
+    headless: !headed,
+    channel: headed ? 'chrome' : undefined,
+    args: ['--disable-blink-features=AutomationControlled'],
+  });
+  const context = await browser.newContext(
+    storageStatePath && fs.existsSync(storageStatePath) ? { storageState: storageStatePath } : {}
+  );
+  const page = await context.newPage();
+
+  const failureLogPath = path.join(outputDir, '69xku_scrape_failures.jsonl');
 
   let chapters;
   const envListUrl = process.env.X69KU_CHAPTERS_URL?.trim();
@@ -362,7 +528,7 @@ async function main() {
   const total = chapters.length;
   if (total === 0) {
     await browser.close();
-    console.error('未得到任何章节 URL。');
+    console.error('未得到任何章节 URL。若遇 Cloudflare，请使用 NOVEL_HEADLESS=0 或 X69KU_STORAGE_STATE。');
     process.exit(1);
   }
 
@@ -384,7 +550,24 @@ async function main() {
       fs.writeFileSync(outPath, `${title}\n\n${text}`, 'utf8');
       console.log(`ok (${text.length} 字)`);
     } catch (e) {
-      console.log(`失败: ${e.message}`);
+      const errMsg = e && e.message ? e.message : String(e);
+      console.log(`失败: ${errMsg}`);
+      console.error(`[69xku] 章节抓取失败 index=${i + 1}/${total} title=${title} href=${href} error=${errMsg}`);
+      try {
+        fs.appendFileSync(
+          failureLogPath,
+          `${JSON.stringify({
+            at: new Date().toISOString(),
+            index: i + 1,
+            title,
+            href,
+            error: errMsg,
+          })}\n`,
+          'utf8'
+        );
+      } catch (_) {
+        /* ignore log IO errors */
+      }
     }
   }
 
