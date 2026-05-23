@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { SCRAPERS } from '../scrapers.js';
+import { useEffect, useMemo, useState } from 'react';
+import { DEFAULT_SCRAPERS, fetchScrapers } from '../scrapers.js';
 import { apiJson } from '../api.js';
 
 function enabledOf(t) {
@@ -21,6 +21,21 @@ export default function TargetEditForm({ initial, isNew, onSaved }) {
   const [mergeTitle, setMergeTitle] = useState(initial?.mergeTitle ?? '');
   const [enabled, setEnabled] = useState(enabledOf(initial));
   const [err, setErr] = useState('');
+  const [scrapers, setScrapers] = useState(DEFAULT_SCRAPERS);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchScrapers()
+      .then((s) => {
+        if (!cancelled && Array.isArray(s) && s.length > 0) setScrapers(s);
+      })
+      .catch(() => {
+        // ignore; keep fallback list
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const payload = useMemo(() => {
     const body = {
@@ -71,7 +86,7 @@ export default function TargetEditForm({ initial, isNew, onSaved }) {
         <div className="field-group">
           <div className="field-label">站点 / 脚本</div>
           <select value={scraper} onChange={(e) => setScraper(e.target.value)}>
-            {SCRAPERS.map((s) => (
+            {scrapers.map((s) => (
               <option key={s} value={s}>
                 {s}
               </option>

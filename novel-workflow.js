@@ -7,36 +7,20 @@
  *   node novel-workflow.js local 5      本地列表 + 只抓前 5 章（试跑）
  */
 
-const fs = require('fs');
-const path = require('path');
 const readline = require('readline');
 const { spawnSync } = require('child_process');
 
-const CONFIG_NAME = 'novel-targets.json';
-
-/** 各站抓取脚本位于 gaode/<站点>/，新增网站时在此登记并新建目录 */
-const SCRAPER_TO_SCRIPT = {
-  book18: path.join(__dirname, 'gaode', 'book18', 'scrape-novel.js'),
-  shuwen6: path.join(__dirname, 'gaode', 'shuwen6', 'scrape-shuwen6.js'),
-  diyibanzhu: path.join(__dirname, 'gaode', 'diyibanzhu', 'scrape-diyibanzhu.js'),
-  nzxs: path.join(__dirname, 'gaode', 'nzxs', 'scrape-nzxs.js'),
-  bookszw: path.join(__dirname, 'gaode', 'bookszw', 'scrape-bookszw.js'),
-  '69xku': path.join(__dirname, 'gaode', '69xku', 'scrape-69xku.js'),
-  '9ksw': path.join(__dirname, 'gaode', '9ksw', 'scrape-9ksw.js'),
-};
+const { readConfig, resolveTarget } = require('./lib/orchestrator/targets');
+const { buildSpawnArgs } = require('./lib/orchestrator/plan');
 
 function loadConfig() {
-  const p = path.join(__dirname, CONFIG_NAME);
-  if (!fs.existsSync(p)) {
-    console.error(`缺少配置文件: ${p}`);
+  try {
+    const j = readConfig(__dirname);
+    return j.targets;
+  } catch (e) {
+    console.error(e.message || e);
     process.exit(1);
   }
-  const j = JSON.parse(fs.readFileSync(p, 'utf8'));
-  if (!Array.isArray(j.targets) || j.targets.length === 0) {
-    console.error(`${CONFIG_NAME} 中需包含非空 targets 数组`);
-    process.exit(1);
-  }
-  return j.targets;
 }
 
 function printTargets(targets) {
@@ -47,18 +31,6 @@ function printTargets(targets) {
     const dis = t.enabled === false ? ' (disabled)' : '';
     console.log(`  [${i + 1}] ${t.id}  —  ${t.label}${eng}${dis}  (${src} → ${t.outputDir})`);
   });
-}
-
-function resolveTarget(targets, arg) {
-  if (!arg) return null;
-  const s = arg.trim();
-  const n = parseInt(s, 10);
-  if (/^\d+$/.test(s) && n >= 1 && n <= targets.length) return targets[n - 1];
-  const low = s.toLowerCase();
-  return (
-    targets.find((t) => t.id.toLowerCase() === low) ||
-    targets.find((t) => (t.label && t.label.includes(s)) || false)
-  );
 }
 
 function askTarget(targets) {
@@ -81,23 +53,16 @@ function validateTarget(t) {
 
 function runScrapeForTarget(t, limit) {
   validateTarget(t);
-  const engine = (t.scraper && String(t.scraper).trim()) || 'book18';
-  const script = SCRAPER_TO_SCRIPT[engine];
-  if (!script) {
-    console.error(`未知 scraper: ${engine}，请在 novel-workflow.js 的 SCRAPER_TO_SCRIPT 中增加 gaode/<站点>/ 脚本路径`);
+  let scriptArgs;
+  try {
+    scriptArgs = buildSpawnArgs(__dirname, t, limit);
+  } catch (e) {
+    console.error(e.message || e);
     process.exit(1);
   }
-  const args = [script];
+  const args = scriptArgs.argv;
 
-  if (t.chaptersListUrl) args.push(t.chaptersListUrl.trim());
-  else args.push('--file', `--url-file=${t.urlFile}`);
-
-  args.push(`--out-dir=${t.outputDir}`, '--merge');
-  if (t.mergeTitle && String(t.mergeTitle).trim()) {
-    args.push(`--merge-title=${t.mergeTitle.trim()}`);
-  }
-  if (limit && /^\d+$/.test(String(limit))) args.push(String(limit));
-
+  const engine = (t.scraper && String(t.scraper).trim()) || 'book18';
   if (engine === 'bookszw' && process.env.NOVEL_HEADLESS !== '0' && process.env.BOOKSZW_HEADED !== '1') {
     console.log(
       '提示: bookszw 易被 Cloudflare 拦截；无头模式会长时间等待。若卡住请先 Ctrl+C，再在 CMD 执行 set NOVEL_HEADLESS=0，或在 PowerShell 执行 $env:NOVEL_HEADLESS = "0"，然后重跑本命令。'

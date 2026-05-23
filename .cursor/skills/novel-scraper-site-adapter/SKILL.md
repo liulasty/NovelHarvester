@@ -11,7 +11,7 @@ description: Adapts new novel-reading sites into the my-pw-project Playwright pi
 Playwright 打开真实浏览器
   → 目录页发现章节 { href, title }[]，写入 outputDir/chapters_manifest.json
   → 逐章抓取正文 → outputDir/chapters/001_*.txt …
-  → 可选 merge-novel.js → outputDir/merged/全文合并.txt
+  → 可选 merge-novel.js → outputDir/merged/{书名}.txt（有 --merge-title 时以书名为文件名）
 编排：novel-targets.json + novel-workflow.js（按 scraper 键选 gaode 下脚本）
 ```
 
@@ -46,7 +46,7 @@ Playwright 打开真实浏览器
    - 在 **`novel-targets.json`** 增加 target：`scraper` 为该键，`chaptersListUrl` 或 `urlFile`，`outputDir`，`mergeTitle`。
 
 5. **试跑**  
-   `node novel-workflow.js <新id> 3` 只拉 3 章，检查 `chapters/` 字数与 `merged/全文合并.txt`。
+   `node novel-workflow.js <新id> 3` 只拉 3 章，检查 `chapters/` 字数与 `merged/` 合并结果。
 
 6. **文档**  
    在 **`gaode/<站点>/说明文档.md`** 中写明目录、正文、分页、解码与注意事项；根目录 **`README.md`** 中维护通用约定，并在「各站实现细节」表中增加指向该站 `说明文档.md` 的链接。
@@ -109,7 +109,7 @@ Playwright 打开真实浏览器
 - `gaode/book18/scrape-novel.js`：静态 DOM 目录 + `.reader` 正文  
 - `gaode/shuwen6/scrape-shuwen6.js`：目录分页 + AJAX 正文 + 章内「下页」+ **`.wen` / `_txt_call` 优先** + `timg-map.json` 兜底  
 - `gaode/shuwen6/timg-map.json`：TImg `src` → 单字（可选；`.wen` 成功时本章可不依赖）  
-- `merge-novel.js`：`chapters/` 优先，默认 `merged/全文合并.txt`  
+- `merge-novel.js`：`chapters/` 优先，默认 `merged/{bookTitle}.txt`（有 title 时以书名为文件名）  
 - `README.md`（项目根）：通用约定与索引；各站细节见 **`gaode/<站点>/说明文档.md`**
 
 ## 常见坑

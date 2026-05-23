@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "express": "^4.21.2",
-    "playwright": "^1.60.0-alpha-1775584683000",
+    "playwright": "^1.60.0-beta-1778191499000",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.1"

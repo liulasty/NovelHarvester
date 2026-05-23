@@ -12,7 +12,7 @@
  * 仅重跑记录中的章节（不重新扫目录）；会强制覆盖已存在分章（便于补 timg-map 后重拉）：
  *   node gaode/shuwen6/scrape-shuwen6.js --out-dir=novel-output/shuwen6-AjMk --retry-failed [--merge]
  *
- * 与 book18 脚本相同约定：--out-dir、--merge、--merge-title=、chapters/、merged/全文合并.txt
+ * 与 book18 脚本相同约定：--out-dir、--merge、--merge-title=、chapters/、merged/{小说名}.txt
  *
  * 正文敏感字常以 <img class="TImg" src="data:image/png;base64,..."> 插入，innerText 无法得到汉字。
  * 请在同目录 timg-map.json 中建立「完整 src 字符串 → 单字」映射（同一图片对应同一字，可复制页面里 img 的 src 作键）。

@@ -1,5 +1,6 @@
 /**
- * 将书籍目录下 chapters/ 中的 {序号}_*.txt 按序号合并为 merged/全文合并.txt。
+ * 将书籍目录下 chapters/ 中的 {序号}_*.txt 按序号合并为 merged/{书名}.txt。
+ * 有 bookTitle（--title=）时以书名为合并文件名，否则用默认 全文合并.txt。
  * 序号可为任意位数（001、1000 …），按数值排序。
  * 若不存在 chapters/ 子目录，则兼容旧版：直接在书籍根目录查找分章文件。
  *
@@ -14,6 +15,12 @@ const path = require('path');
 const DEFAULT_DIR = 'novel-output';
 
 const DEFAULT_SEP = '\n\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n\n';
+
+/** 生成合并文件名：有 bookTitle 时用书名，否则用默认值 */
+function mergeFileName(bookTitle) {
+  if (!bookTitle) return '全文合并.txt';
+  return bookTitle.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() + '.txt';
+}
 
 /** 分章文件名：至少一位数字 + 下划线 + 非空主体 + .txt（兼容 001_ 与 1000_ 等） */
 const CHAPTER_FILE_RE = /^(\d+)_(.+)\.txt$/i;
@@ -65,7 +72,7 @@ function mergeNovel(options = {}) {
   }
 
   const outPath = path.resolve(
-    options.outputPath || path.join(inputDir, 'merged', '全文合并.txt')
+    options.outputPath || path.join(inputDir, 'merged', mergeFileName(bookTitle))
   );
 
   const chunks = [];
@@ -101,7 +108,7 @@ function parseCliArgs(argv) {
   return opts;
 }
 
-module.exports = { mergeNovel, listChapterFiles, guessBookTitle, resolveChaptersLocation };
+module.exports = { mergeNovel, mergeFileName, listChapterFiles, guessBookTitle, resolveChaptersLocation };
 
 if (require.main === module) {
   const opts = parseCliArgs(process.argv.slice(2));

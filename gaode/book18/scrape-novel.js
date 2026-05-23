@@ -12,7 +12,7 @@
  *   否则使用脚本内默认的 /zh-hans/chapters/... 目录页。
  * --file 强制只读章节 URL 列表文件（默认 chapters_urls.txt，可用 --url-file= 指定）
  * --out-dir=书籍根目录  元数据（chapters_manifest.json）写在根下；分章 txt 写在 书籍根目录/chapters/
- * --merge 抓取结束后合并为 书籍根目录/merged/全文合并.txt（也可单独运行项目根目录 merge-novel.js）
+ * --merge 抓取结束后合并为 书籍根目录/merged/{小说名}.txt（有 --merge-title 时以书名为文件名；否则为 全文合并.txt）
  * --merge-title=书名  合并文件抬头（可选）
  *
  * 试跑限制：在 URL 后加数字，如：.../chapters/... 5

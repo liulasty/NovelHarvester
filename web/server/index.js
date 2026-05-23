@@ -5,6 +5,7 @@ const express = require('express');
 const { createTargetsRouter } = require('./routes/targets');
 const { createTasksRouter } = require('./routes/tasks');
 const { createOutputsRouter } = require('./routes/outputs');
+const { createScrapersRouter } = require('./routes/scrapers');
 const { TaskManager } = require('./lib/taskManager');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
@@ -25,6 +26,7 @@ app.use(express.json({ limit: '512kb' }));
 app.use('/api/targets', createTargetsRouter(PROJECT_ROOT));
 app.use('/api/tasks', createTasksRouter(taskManager));
 app.use('/api/outputs', createOutputsRouter(PROJECT_ROOT));
+app.use('/api/scrapers', createScrapersRouter());
 
 const clientDist = path.join(PROJECT_ROOT, 'web', 'client', 'dist');
 const hasClientBuild = fs.existsSync(path.join(clientDist, 'index.html'));

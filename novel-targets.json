@@ -76,6 +76,14 @@
       "chaptersListUrl": "https://9ksw.com/novel45382/",
       "outputDir": "novel-output/9ksw-45382",
       "mergeTitle": "仙子破道曲"
+    },
+    {
+      "id": "kateman-hqqhpm",
+      "label": "书海阁 家里的美人犬老婆（shuwu 目录）",
+      "scraper": "kateman",
+      "chaptersListUrl": "https://www.kateman.net/shuwu/hqqhpm/",
+      "outputDir": "novel-output/kateman-hqqhpm",
+      "mergeTitle": "家里的美人犬老婆"
     }
   ]
 }

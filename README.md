@@ -25,12 +25,12 @@ novel-output/
 ├── <书籍 id>/                 # 例如 xnl、local（与 novel-targets.json 中 outputDir 一致）
 │   ├── chapters_manifest.json # 从目录页解析出的章节列表（仅网络发现模式会写入）
 │   ├── chapters/              # 分章：001_标题.txt、002_标题.txt …
-│   └── merged/                # 合并：全文合并.txt
+│   └── merged/                # 合并：以《小说作品名》命名的 .txt
 └── …
 ```
 
 - **chapters/**：仅存放按序号命名的分章 `.txt`。
-- **merged/**：仅存放合并后的 `全文合并.txt`（可用 `--out=` 指定其他路径）。
+- **merged/**：仅存放合并后的 `以小说作品名命名的.txt`（有 `mergeTitle` 时以书名为文件名；否则为 `全文合并.txt`；也可用 `--out=` 指定其他路径）。
 - 若历史上曾把分章直接放在书籍根目录（无 `chapters/`），`merge-novel.js` 仍会尝试从根目录读取，便于过渡旧数据。
 
 ## `gaode/` 各站脚本目录
@@ -59,13 +59,14 @@ gaode/
     ├── 说明文档.md
     └── scrape-69xku.js
 ```
+Also note: `9ksw/` and `kateman/` directories follow the same structure.
 
 **新增网站时：**
 
 1. 在 `gaode/` 下新建子目录（建议用小写域名简称，如 `example`）。
 2. 放入该站的抓取入口脚本（需 `require` 项目根目录的 `merge-novel.js`：`path.join(__dirname, '..', '..', 'merge-novel.js')`）。
 3. 在 **`gaode/<站点>/说明文档.md`** 中写明目录页、正文、分页、解码与注意事项（与脚本同源维护）。
-4. 在 `novel-workflow.js` 的 **`SCRAPER_TO_SCRIPT`** 中增加一行：`站点标识: path.join(__dirname, 'gaode', '站点目录', '脚本名.js')`。
+4. 在 **`lib/orchestrator/registry.js`** 的 **`SCRAPER_TO_SCRIPT_REL`** 中增加一行：`站点标识: path.join('gaode', '站点目录', '脚本名.js')`。
 5. 在 `novel-targets.json` 的目标里把 **`scraper`** 设为该站点标识。
 6. 在本 **`README.md`** 的「各站实现细节」表中增加指向该站 `说明文档.md` 的链接。
 
@@ -81,7 +82,7 @@ gaode/
 | `urlFile` | 本地章节 URL 列表文件（每行一个 http 链接） |
 | `outputDir` | 书籍根目录，如 `novel-output/xnl`（其下会自动使用 `chapters/`、`merged/`） |
 | `mergeTitle` | 合并文件抬头书名（可空） |
-| `scraper` | 可选：与 `novel-workflow.js` 中 `SCRAPER_TO_SCRIPT` 键一致，如 `shuwen6`、`diyibanzhu`、`nzxs`、`bookszw`、`69xku`、`9ksw`、`book18`（缺省为 `book18`） |
+| `scraper` | 可选：与 `lib/orchestrator/registry.js` 中 `SCRAPER_TO_SCRIPT_REL` 键一致，如 `shuwen6`、`diyibanzhu`、`nzxs`、`bookszw`、`69xku`、`9ksw`、`kateman`、`book18`（缺省为 `book18`） |
 | `enabled` | 可选：设为 `false` 时 Web 控制台不可启动该目标（列表仍可显示为灰显）；缺省为 `true`。`novel-workflow.js list` 会标注 `(disabled)`；仍可用 `node novel-workflow.js <id>` 直接指定 id 运行 |
 
 已配置 book18 书目示例：`xnl`（训练学园）、`xiaohua-xyz`（校花的许愿珠）；第一版主示例：`diyibanzhu-xzduo`（`scraper`: `diyibanzhu`）；nzxs 示例：`nzxs-xsz`（`scraper`: `nzxs`）；bookszw 示例：`bookszw-22313`（`scraper`: `bookszw`）；69库示例：`x69ku-49851`（`scraper`: `69xku`）。
@@ -98,6 +99,8 @@ gaode/
 | www.nzxs.cc（女主小说） | [gaode/nzxs/说明文档.md](gaode/nzxs/说明文档.md) |
 | www.bookszw.com | [gaode/bookszw/说明文档.md](gaode/bookszw/说明文档.md) |
 | 69xku.com（69库） | [gaode/69xku/说明文档.md](gaode/69xku/说明文档.md) |
+| 9ksw.com（九库） | [gaode/9ksw/说明文档.md](gaode/9ksw/说明文档.md) |
+| www.kateman.net（书海阁） | [gaode/kateman/说明文档.md](gaode/kateman/说明文档.md) |
 
 ## 常用命令
 
