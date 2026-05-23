@@ -84,6 +84,14 @@
       "chaptersListUrl": "https://www.kateman.net/shuwu/hqqhpm/",
       "outputDir": "novel-output/kateman-hqqhpm",
       "mergeTitle": "家里的美人犬老婆"
+    },
+    {
+      "id": "chengzixs-124877",
+      "label": "橙子小说网 我和我的妹妹雯雯（全本）",
+      "scraper": "chengzixs",
+      "chaptersListUrl": "https://www.chengzixs.com/passage/124877/",
+      "outputDir": "novel-output/chengzixs-124877",
+      "mergeTitle": "我和我的妹妹雯雯"
     }
   ]
 }
