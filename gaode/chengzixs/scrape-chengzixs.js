@@ -3,6 +3,9 @@
  *
  * 目录页：/passage/{bookId}/ 收集全部 /chapter/{bookId}/ 链接
  * 正文：#chapter-content；首页广告行用 stripAdLines 过滤
+ * 敏感字：部分小说用 <img src="/asset/fonts/{n}.png"> 替换单个汉字。
+ * 同目录 font-map.json 中建立「数字 n → 单字」映射（如 {"14":"你","32":"我"}）。
+ * 未映射时用 □ 占位并在控制台提示。
  *
  *   node gaode/chengzixs/scrape-chengzixs.js <目录页URL> [最多N章]
  *   node gaode/chengzixs/scrape-chengzixs.js https://www.chengzixs.com/passage/124877/ --out-dir=novel-output/chengzixs --merge
@@ -15,9 +18,13 @@ const path = require('path');
 const { chromium } = require('playwright');
 
 const MERGE_NOVEL = path.join(__dirname, '..', '..', 'merge-novel.js');
+const FONT_MAP_FILE = path.join(__dirname, 'font-map.json');
 
 const CONTENT_SEL = '#chapter-content';
 const GOTO_OPTS = { waitUntil: 'domcontentloaded', timeout: 60000 };
+
+/** 字体图片 URL 模式：/asset/fonts/{数字}.png */
+const FONT_IMG_RE = /\/asset\/fonts\/(\d+)\.png/i;
 
 function sanitizeFilePart(s) {
   return String(s)
@@ -25,6 +32,17 @@ function sanitizeFilePart(s) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 120);
+}
+
+function loadFontMap() {
+  try {
+    const raw = fs.readFileSync(FONT_MAP_FILE, 'utf8');
+    const o = JSON.parse(raw);
+    if (o && typeof o === 'object' && !Array.isArray(o)) return o;
+  } catch {
+    // 缺文件或解析失败则视为无映射
+  }
+  return {};
 }
 
 /** 过滤广告行：正文开头的收藏提示、听书广告等 */
@@ -66,11 +84,63 @@ async function discoverChapters(page, entryUrl) {
   }, entryUrl);
 }
 
-/** 抓取一章正文，去除广告行 */
-async function extractChapterText(page, chapterUrl) {
+/**
+ * 提取#chapter-content 中的纯文本：
+ * - 文本节点原样输出
+ * - img[src*="/asset/fonts/"] 用 fontMap[num] 或 □ 占位
+ * - br → 换行
+ * 返回 { text, unknownFonts } 其中 unknownFonts 为未映射的字体数字 Set。
+ */
+async function extractContentWithFontMap(page, fontMap) {
+  const sel = CONTENT_SEL;
+  return page.evaluate(([sel, map]) => {
+    const root = document.querySelector(sel);
+    if (!root) return { text: '', unknownFonts: [] };
+    const FONT_RE = /\/asset\/fonts\/(\d+)\.png/i;
+    const PLACEHOLDER = '□';
+    const unknownSet = new Set();
+
+    function walk(node) {
+      let s = '';
+      for (const child of node.childNodes) {
+        if (child.nodeType === 3) {
+          s += child.textContent || '';
+          continue;
+        }
+        if (child.nodeType !== 1) continue;
+        const el = child;
+        const tag = el.tagName;
+        if (tag === 'BR') {
+          s += '\n';
+          continue;
+        }
+        if (tag === 'IMG') {
+          const src = el.getAttribute('src') || '';
+          const m = src.match(FONT_RE);
+          if (m) {
+            const num = m[1];
+            if (map[num] !== undefined) {
+              s += map[num];
+            } else {
+              unknownSet.add(num);
+              s += PLACEHOLDER;
+            }
+          }
+          continue;
+        }
+        s += walk(el);
+      }
+      return s;
+    }
+
+    return { text: walk(root).trim(), unknownFonts: [...unknownSet] };
+  }, [sel, fontMap]);
+}
+
+/** 等待正文容器就绪并提取文本（含字体图映射） */
+async function extractChapterText(page, chapterUrl, fontMap) {
   await page.goto(chapterUrl, GOTO_OPTS);
   await page.waitForSelector(CONTENT_SEL, { timeout: 25000 });
-  // 等正文加载完成（字数不再明显增长）
   await page.waitForFunction(
     () => {
       const el = document.querySelector('#chapter-content');
@@ -78,8 +148,10 @@ async function extractChapterText(page, chapterUrl) {
     },
     { timeout: 30000 }
   ).catch(() => {});
-  const raw = await page.$eval(CONTENT_SEL, (el) => el.innerText.trim());
-  return stripAdLines(raw);
+
+  const { text, unknownFonts } = await extractContentWithFontMap(page, fontMap);
+  const cleaned = stripAdLines(text);
+  return { text: cleaned, unknownFonts };
 }
 
 function extractScrapeFlags(argv) {
@@ -113,6 +185,10 @@ async function main() {
   fs.mkdirSync(outputDir, { recursive: true });
   fs.mkdirSync(chaptersDir, { recursive: true });
 
+  const fontMap = loadFontMap();
+  const fontKeys = Object.keys(fontMap).length;
+  if (fontKeys > 0) console.log('已加载字体映射', fontKeys, '条:', FONT_MAP_FILE);
+
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
 
@@ -133,6 +209,9 @@ async function main() {
     process.exit(1);
   }
 
+  /** 收集全书出现的未知字体数字 */
+  const allUnknownFonts = new Set();
+
   for (let i = 0; i < total; i++) {
     const { href, title } = chapters[i];
     const id = path.basename(new URL(href).pathname);
@@ -147,7 +226,11 @@ async function main() {
 
     process.stdout.write(`[${i + 1}/${total}] ${id} … `);
     try {
-      const text = await extractChapterText(page, href);
+      const { text, unknownFonts } = await extractChapterText(page, href, fontMap);
+      for (const n of unknownFonts) allUnknownFonts.add(n);
+      if (unknownFonts.length > 0) {
+        process.stdout.write(`(${unknownFonts.length} 个未映射字体) `);
+      }
       fs.writeFileSync(outPath, `${title}\n\n${text}`, 'utf8');
       console.log(`ok (${text.length} 字)`);
     } catch (e) {
@@ -157,6 +240,11 @@ async function main() {
 
   await browser.close();
   console.log('完成，输出目录:', path.resolve(outputDir));
+
+  if (allUnknownFonts.size > 0) {
+    console.log(`\n全书共 ${allUnknownFonts.size} 个唯一字体未映射:`, [...allUnknownFonts].sort((a, b) => a - b).join(', '));
+    console.log(`请在 ${FONT_MAP_FILE} 中补充映射后重新运行`);
+  }
 
   if (runMerge) {
     const { mergeNovel } = require(MERGE_NOVEL);
