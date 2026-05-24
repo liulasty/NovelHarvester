@@ -272,8 +272,8 @@ async function chapterBodyProbe(page) {
   }
 }
 
-async function waitForChapterBody(page, phase) {
-  const timeout = parseInt(process.env.BOOKSZW_CHALLENGE_TIMEOUT_MS || '120000', 10);
+async function waitForChapterBody(page, phase, timeoutMs) {
+  const timeout = timeoutMs || parseInt(process.env.BOOKSZW_CHALLENGE_TIMEOUT_MS || '120000', 10);
   const pollMs = 2000;
   const heartbeatSec = 8;
   const start = Date.now();
@@ -598,50 +598,84 @@ async function extractChapterPlainText(page, chapterUrl) {
 
   const { origin, category, bookId, chapterId } = stem;
   const base = `${origin}/${category}/${bookId}/${chapterId}`;
-  const urls = [`${base}.html`];
-  for (let k = 1; k <= 250; k++) urls.push(`${base}_${k}.html`);
 
   const parts = [];
-  let shortStreak = 0;
-  let dupStreak = 0;
 
-  for (const url of urls) {
+  // 先取第一页
+  try {
+    await page.goto(`${base}.html`, GOTO_OPTS);
+    await waitForChapterBody(page, `正文 ${chapterId}.html`);
+  } catch {
+    throw new Error(`正文首页加载失败: ${chapterUrl}`);
+  }
+
+  // 处理第一页
+  const sel = await resolveContentSelector(page);
+  const firstRaw = await page.$eval(sel, (el) => el.innerText.trim()).catch(() => '');
+  const firstChunk = stripLeadingChapterHeadNoise(stripAdLines(firstRaw));
+  if (firstChunk.length < 25) throw new Error(`正文首页内容过短: ${chapterUrl}`);
+
+  const head = (await page.$eval('h1', (el) => el.textContent.trim()).catch(() => '')) + ' ';
+  const bar = (await page.title().catch(() => '')) + ' ';
+  let pageFrac = parsePageFractionFromText(head + bar);
+  if (!pageFrac) pageFrac = parsePageFractionFromText(firstChunk.slice(-800));
+  parts.push(firstChunk);
+
+  const hasMoreHint = chunkImpliesMorePages(firstRaw);
+  if (!hasMoreHint && (!pageFrac || pageFrac[0] >= pageFrac[1])) {
+    return stripLeadingChapterHeadNoise(parts.join('\n\n').trim());
+  }
+
+  // 快速探测 _1.html 确认是否真有多页（站点底栏常含"本章未完"误导）
+  const PROBE_TIMEOUT = 3000;
+  let hasMorePages = false;
+  try {
+    await page.goto(`${base}_1.html`, { waitUntil: 'domcontentloaded', timeout: PROBE_TIMEOUT });
+    const probeText = await page.$eval(sel, (el) => el.innerText.trim()).catch(() => '');
+    if (probeText.length > 50) hasMorePages = true;
+  } catch { /* 单页 */ }
+
+  if (!hasMorePages) return stripLeadingChapterHeadNoise(parts.join('\n\n').trim());
+
+  // 后续分页
+  const SUB_PAGE_READY_TIMEOUT = 10000;
+  let shortStreak = 0;
+  let pageFailStreak = 0;
+
+  for (let k = 1; k <= 100; k++) {
+    const pageUrl = `${base}_${k}.html`;
     try {
-      await page.goto(url, GOTO_OPTS);
-      await waitForChapterBody(page, `正文 ${path.basename(new URL(url).pathname)}`);
+      await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: SUB_PAGE_READY_TIMEOUT });
+      await waitForChapterBody(page, `正文 ${chapterId}_${k}`, SUB_PAGE_READY_TIMEOUT);
     } catch {
-      if (parts.length > 0) break;
+      pageFailStreak++;
+      if (pageFailStreak >= 3) break;
       continue;
     }
+    pageFailStreak = 0;
 
-    const sel = await resolveContentSelector(page);
-    const raw = await page.$eval(sel, (el) => el.innerText.trim()).catch(() => '');
-    /** 须在 stripAdLines 之前判断：stripAdLines 会去掉「本章未完」等行，否则永远误判为单页 */
-    const rawImpliesMorePages = chunkImpliesMorePages(raw);
+    const s = await resolveContentSelector(page);
+    const raw = await page.$eval(s, (el) => el.innerText.trim()).catch(() => '');
     const chunk = stripLeadingChapterHeadNoise(stripAdLines(raw));
-    if (chunk.length < 25) {
+    if (chunk.length < 50) {
       shortStreak++;
-      if (parts.length > 0 && shortStreak >= 3) break;
+      if (shortStreak >= 3) break;
       continue;
     }
     shortStreak = 0;
 
-    const head = (await page.$eval('h1', (el) => el.textContent.trim()).catch(() => '')) + ' ';
-    const bar = (await page.title().catch(() => '')) + ' ';
-    let fr = parsePageFractionFromText(head + bar);
+    const h = (await page.$eval('h1', (el) => el.textContent.trim()).catch(() => '')) + ' ';
+    const t = (await page.title().catch(() => '')) + ' ';
+    let fr = parsePageFractionFromText(h + t);
     if (!fr) fr = parsePageFractionFromText(chunk.slice(-800));
 
-    const pfx = normalizeTextPrefix(chunk, 240);
-    if (parts.length > 0 && pfx === normalizeTextPrefix(parts[parts.length - 1], 240)) {
-      dupStreak++;
-      if (dupStreak >= 6) break;
-      continue;
-    }
-    dupStreak = 0;
+    // 重复内容检测
+    const prevPfx = (parts[parts.length - 1] || '').replace(/\s+/g, '').slice(0, 120);
+    const curPfx = chunk.replace(/\s+/g, '').slice(0, 120);
+    if (parts.length > 0 && curPfx && curPfx === prevPfx) break;
 
     parts.push(chunk);
     if (fr && fr[0] >= fr[1]) break;
-    if (rawImpliesMorePages) continue;
     if (fr && fr[0] < fr[1]) continue;
     break;
   }

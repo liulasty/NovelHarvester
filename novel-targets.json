@@ -100,6 +100,14 @@
       "chaptersListUrl": "https://www.chengzixs.com/passage/72026/",
       "outputDir": "novel-output/chengzixs-72026",
       "mergeTitle": "我和我妹妹雯雯"
+    },
+    {
+      "id": "ddw23-51866",
+      "label": "顶点小说网 九阳帝尊（章节目录 #list）",
+      "scraper": "ddw23",
+      "chaptersListUrl": "https://www.23ddw.net/du/51/51866/",
+      "outputDir": "novel-output/ddw23-51866",
+      "mergeTitle": "九阳帝尊"
     }
   ]
 }
