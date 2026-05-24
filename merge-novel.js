@@ -1,6 +1,7 @@
 /**
  * 将书籍目录下 chapters/ 中的 {序号}_*.txt 按序号合并为 merged/{书名}.txt。
  * 有 bookTitle（--title=）时以书名为合并文件名，否则用默认 全文合并.txt。
+ * 合并过程中执行全书级清洗：HTML 实体解码、多余空行压缩。
  * 序号可为任意位数（001、1000 …），按数值排序。
  * 若不存在 chapters/ 子目录，则兼容旧版：直接在书籍根目录查找分章文件。
  *
@@ -84,7 +85,23 @@ function mergeNovel(options = {}) {
 
   for (let i = 0; i < files.length; i++) {
     const p = path.join(chaptersDir, files[i]);
-    const text = fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n').trim();
+    let text = fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+    // 全书级清洗：HTML 实体解码、多余空行压缩、全角半角统一
+    text = text
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => {
+        const cp = parseInt(h, 16);
+        return Number.isFinite(cp) ? String.fromCodePoint(cp) : _;
+      })
+      .replace(/&#(\d+);/g, (_, d) => {
+        const cp = parseInt(d, 10);
+        return Number.isFinite(cp) && cp >= 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : _;
+      })
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+      .replace(/​/g, '')             // 零宽空格
+      .replace(/ /g, ' ')            // 不断行空格
+      .replace(/\n{3,}/g, '\n\n')         // 连续空行压缩
+      .trim();
     chunks.push(text);
     if (i < files.length - 1) chunks.push(separator);
   }
