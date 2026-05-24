@@ -101,6 +101,10 @@ function mergeNovel(options = {}) {
       .replace(/​/g, '')             // 零宽空格
       .replace(/ /g, ' ')            // 不断行空格
       .replace(/\n{3,}/g, '\n\n')         // 连续空行压缩
+      // 过滤纯导航行：上一章/下一章/目录（含括号箭头）
+      .split('\n')
+      .filter(line => !/^(?:上一章|下一章|目录)\s*(?:[\(（][^)]*[\)）])?\s*$/.test(line.trim()))
+      .join('\n')
       .trim();
     chunks.push(text);
     if (i < files.length - 1) chunks.push(separator);
