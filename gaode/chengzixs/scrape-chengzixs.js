@@ -62,6 +62,27 @@ function stripAdLines(text) {
     .trim();
 }
 
+/** 解析 Unicode RTL 覆盖（U+202E…U+202C），将夹在中间的文本反转回正常顺序 */
+function fixUnicodeBidi(text) {
+  const RLO = '‮';
+  const PDF = '‬';
+  let result = '';
+  let i = 0;
+  while (i < text.length) {
+    const rloIdx = text.indexOf(RLO, i);
+    if (rloIdx === -1) { result += text.slice(i); break; }
+    result += text.slice(i, rloIdx);
+    const start = rloIdx + 1;
+    const pdfIdx = text.indexOf(PDF, start);
+    const end = pdfIdx === -1 ? text.length : pdfIdx;
+    // 反转被 RLO 覆盖的文本
+    const reversed = text.slice(start, end).split('').reverse().join('');
+    result += reversed;
+    i = pdfIdx === -1 ? text.length : pdfIdx + 1;
+  }
+  return result;
+}
+
 /** 从 /passage/{bookId}/ 发现全部章节链接 */
 async function discoverChapters(page, entryUrl) {
   await page.goto(entryUrl, GOTO_OPTS);
@@ -150,7 +171,7 @@ async function extractChapterText(page, chapterUrl, fontMap) {
   ).catch(() => {});
 
   const { text, unknownFonts } = await extractContentWithFontMap(page, fontMap);
-  const cleaned = stripAdLines(text);
+  const cleaned = fixUnicodeBidi(stripAdLines(text));
   return { text: cleaned, unknownFonts };
 }
 
