@@ -102,12 +102,52 @@
       "mergeTitle": "我和我妹妹雯雯"
     },
     {
+      "id": "xncwxw-68426",
+      "label": "新暖才文学网 宗教家庭的禁忌治疗（分页目录 #nr1 正文）",
+      "scraper": "xncwxw",
+      "chaptersListUrl": "https://m.xncwxw.net/68_68426/",
+      "outputDir": "novel-output/xncwxw-68426",
+      "mergeTitle": "宗教家庭的禁忌治疗"
+    },
+    {
+      "id": "xncwxw-67876",
+      "label": "新暖才文学网 破虚仙母录（单页目录 #nr1 正文）",
+      "scraper": "xncwxw",
+      "chaptersListUrl": "https://m.xncwxw.net/67_67876/",
+      "outputDir": "novel-output/xncwxw-67876",
+      "mergeTitle": "破虚仙母录"
+    },
+    {
+      "id": "xncwxw-52586",
+      "label": "新暖才文学网 女神攻略调教手册（分页目录 #nr1 正文）",
+      "scraper": "xncwxw",
+      "chaptersListUrl": "https://m.xncwxw.net/52_52586/",
+      "outputDir": "novel-output/xncwxw-52586",
+      "mergeTitle": "女神攻略调教手册"
+    },
+    {
       "id": "ddw23-51866",
       "label": "顶点小说网 九阳帝尊（章节目录 #list）",
       "scraper": "ddw23",
       "chaptersListUrl": "https://www.23ddw.net/du/51/51866/",
       "outputDir": "novel-output/ddw23-51866",
       "mergeTitle": "九阳帝尊"
+    },
+    {
+      "id": "shuwen6-JGu",
+      "label": "书文小说网 阿里布达年代记（1057章 弄玉）",
+      "scraper": "shuwen6",
+      "chaptersListUrl": "https://m.shuwen6.cc/xs/JGu/ml.html",
+      "outputDir": "novel-output/shuwen6-JGu",
+      "mergeTitle": "阿里布达年代记"
+    },
+    {
+      "id": "biquzi-336278",
+      "label": "笔趣小说 biquzi.com 沦为性奴绳奴的仙子魔女们(f)（336_336278）",
+      "scraper": "biquzi",
+      "chaptersListUrl": "https://www.biquzi.com/336_336278/",
+      "outputDir": "novel-output/biquzi-336278",
+      "mergeTitle": "沦为性奴绳奴的仙子魔女们(f)"
     }
   ]
 }
