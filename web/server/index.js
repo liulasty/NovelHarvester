@@ -6,11 +6,12 @@ const { createTargetsRouter } = require('./routes/targets');
 const { createTasksRouter } = require('./routes/tasks');
 const { createOutputsRouter } = require('./routes/outputs');
 const { createScrapersRouter } = require('./routes/scrapers');
+const { createNovelsRouter } = require('./routes/novels');
 const { TaskManager } = require('./lib/taskManager');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 const PORT = Number(process.env.NOVEL_WEB_PORT || 3001);
-const HOST = process.env.NOVEL_WEB_HOST || '127.0.0.1';
+const HOST = process.env.NOVEL_WEB_HOST || '0.0.0.0';
 const taskManager = new TaskManager({ projectRoot: PROJECT_ROOT });
 
 function shutdown() {
@@ -27,6 +28,7 @@ app.use('/api/targets', createTargetsRouter(PROJECT_ROOT));
 app.use('/api/tasks', createTasksRouter(taskManager));
 app.use('/api/outputs', createOutputsRouter(PROJECT_ROOT));
 app.use('/api/scrapers', createScrapersRouter());
+app.use('/api/novels', createNovelsRouter(PROJECT_ROOT));
 
 const clientDist = path.join(PROJECT_ROOT, 'web', 'client', 'dist');
 const hasClientBuild = fs.existsSync(path.join(clientDist, 'index.html'));

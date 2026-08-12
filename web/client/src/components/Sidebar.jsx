@@ -1,7 +1,8 @@
 import { NavLink } from 'react-router-dom';
 
 const items = [
-  { to: '/targets', label: 'Targets', dot: 'd-purple' },
+  { to: '/novels', label: 'Novels', dot: 'd-purple' },
+  { to: '/targets', label: 'Targets', dot: 'd-coral' },
   { to: '/tasks', label: 'Tasks', dot: 'd-teal' },
   { to: '/outputs', label: 'Outputs', dot: 'd-coral' },
 ];

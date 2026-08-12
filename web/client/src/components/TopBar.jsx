@@ -1,9 +1,9 @@
-export default function TopBar({ title, back, onBack, right }) {
+export default function TopBar({ title, back, onBack, right, backText }) {
   return (
     <div className="topbar">
       {back ? (
         <button type="button" className="topbar-back" onClick={onBack}>
-          ← 返回 Targets
+          ← {backText || '返回'}
         </button>
       ) : (
         <span className="topbar-title">{title}</span>
