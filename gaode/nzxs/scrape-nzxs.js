@@ -21,24 +21,25 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
+const {
+  sanitizeFilePart,
+  stripAdLines,
+  extractFlags,
+  resolveUrlFilePath,
+  readUrlFileSync,
+  chaptersFromUrlFileText,
+} = require(path.join(__dirname, '..', 'lib', 'scraper-common.js'));
 
 const MERGE_NOVEL = path.join(__dirname, '..', '..', 'merge-novel.js');
 const PROJECT_ROOT = path.join(__dirname, '..', '..');
 
 const CONTENT_SEL = '#txt';
-const DEFAULT_URL_FILE = 'chapters_urls.txt';
 const DEFAULT_CHAPTERS_LIST_URL = 'https://www.nzxs.cc/book/352626/';
 
 const GOTO_OPTS = { waitUntil: 'domcontentloaded', timeout: 60000 };
 const GOTO_LIST_OPTS = { waitUntil: 'networkidle', timeout: 90000 };
 
-function sanitizeFilePart(s) {
-  return String(s)
-    .replace(/[\\/:*?"<>|]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120);
-}
+const STRIP_OPTS = { adRe: /一秒记住新域名|请勿开启浏览器阅读模式/ };
 
 /** /book/352626/ 或 /book/352626/1/ → https://origin/book/352626/ */
 function bookCatalogRootUrl(bookPageUrl) {
@@ -341,20 +342,6 @@ function parseChapterFileStem(chapterUrl) {
   return null;
 }
 
-function stripAdLines(text) {
-  return String(text)
-    .split(/\r?\n/)
-    .filter((line) => {
-      const s = line.trim();
-      if (!s) return true;
-      if (/一秒记住新域名/.test(s)) return false;
-      if (/请勿开启浏览器阅读模式/.test(s)) return false;
-      return true;
-    })
-    .join('\n')
-    .trim();
-}
-
 async function extractOneTxtScreen(page, url) {
   await page.goto(url, GOTO_OPTS);
   await page.waitForSelector(CONTENT_SEL, { timeout: 25000 });
@@ -368,7 +355,7 @@ async function extractOneTxtScreen(page, url) {
     { timeout: 20000 }
   );
   const raw = await page.$eval(CONTENT_SEL, (el) => el.innerText.trim());
-  return stripAdLines(raw);
+  return stripAdLines(raw, STRIP_OPTS);
 }
 
 /**
@@ -419,7 +406,7 @@ async function extractChapterPlainText(page, chapterUrl) {
       .catch(() => {});
 
     const raw = await page.$eval(CONTENT_SEL, (el) => el.innerText.trim()).catch(() => '');
-    const chunk = stripAdLines(raw);
+    const chunk = stripAdLines(raw, STRIP_OPTS);
     if (!chunk) break;
     parts.push(chunk);
     prevPageNum = pageNum || i + 1;
@@ -429,48 +416,8 @@ async function extractChapterPlainText(page, chapterUrl) {
   return parts.join('\n\n').trim();
 }
 
-function resolveUrlFilePath(urlFile) {
-  if (path.isAbsolute(urlFile)) return urlFile;
-  return path.join(PROJECT_ROOT, urlFile);
-}
-
-function readUrlFileSync(absPath) {
-  const buf = fs.readFileSync(absPath);
-  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
-    return buf.slice(2).toString('utf16le');
-  }
-  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
-    return buf.slice(2).toString('utf16be');
-  }
-  return buf.toString('utf8');
-}
-
-function chaptersFromUrlFileText(raw) {
-  const text = String(raw).replace(/^\uFEFF/, '');
-  return text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith('#'))
-    .filter((l) => /^https?:\/\//i.test(l))
-    .map((href) => ({ href, title: path.basename(href) }));
-}
-
-function extractScrapeFlags(argv) {
-  let outputDir = process.env.NOVEL_OUTPUT_DIR?.trim() || 'novel-output';
-  let urlFile = process.env.NOVEL_URL_FILE?.trim() || DEFAULT_URL_FILE;
-  let mergeTitle = '';
-  const rest = [];
-  for (const a of argv) {
-    if (a.startsWith('--out-dir=')) outputDir = a.slice(10).trim();
-    else if (a.startsWith('--url-file=')) urlFile = a.slice(11).trim();
-    else if (a.startsWith('--merge-title=')) mergeTitle = a.slice(14).trim();
-    else rest.push(a);
-  }
-  return { outputDir, urlFile, mergeTitle, restArgv: rest };
-}
-
 async function main() {
-  const { outputDir, urlFile, mergeTitle, restArgv } = extractScrapeFlags(process.argv.slice(2));
+  const { outputDir, urlFile, mergeTitle, restArgv } = extractFlags(process.argv.slice(2));
   const manifestFile = path.join(outputDir, 'chapters_manifest.json');
   const chaptersDir = path.join(outputDir, 'chapters');
 

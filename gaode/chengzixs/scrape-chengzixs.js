@@ -16,6 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
+const { sanitizeFilePart } = require(path.join(__dirname, '..', 'lib', 'scraper-common.js'));
 
 const MERGE_NOVEL = path.join(__dirname, '..', '..', 'merge-novel.js');
 const FONT_MAP_FILE = path.join(__dirname, 'font-map.json');
@@ -25,14 +26,6 @@ const GOTO_OPTS = { waitUntil: 'domcontentloaded', timeout: 60000 };
 
 /** 字体图片 URL 模式：/asset/fonts/{数字}.png */
 const FONT_IMG_RE = /\/asset\/fonts\/(\d+)\.png/i;
-
-function sanitizeFilePart(s) {
-  return String(s)
-    .replace(/[\\/:*?"<>|]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120);
-}
 
 function loadFontMap() {
   try {

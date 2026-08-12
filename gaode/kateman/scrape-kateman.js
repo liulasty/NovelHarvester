@@ -13,6 +13,13 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
+const {
+  sanitizeFilePart,
+  extractFlags,
+  resolveUrlFilePath,
+  readUrlFileSync,
+  chaptersFromUrlFileText,
+} = require(path.join(__dirname, '..', 'lib', 'scraper-common.js'));
 
 const MERGE_NOVEL = path.join(__dirname, '..', '..', 'merge-novel.js');
 const PROJECT_ROOT = path.join(__dirname, '..', '..');
@@ -20,14 +27,6 @@ const PROJECT_ROOT = path.join(__dirname, '..', '..');
 const GOTO_OPTS = { waitUntil: 'commit', timeout: 120000 };
 const CONTENT_DECRYPT_TIMEOUT = 60000;
 const MAX_PAGES_PER_CHAPTER = 20;
-
-function sanitizeFilePart(s) {
-  return String(s)
-    .replace(/[\\/:*?"<>|]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120);
-}
 
 async function gotoWithRetry(page, url, label, maxRetries = 3) {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -195,46 +194,6 @@ async function extractChapterFullText(page, chapterUrl) {
   return allTextParts.join('\n\n').trim();
 }
 
-function extractScrapeFlags(argv) {
-  let outputDir = process.env.NOVEL_OUTPUT_DIR?.trim() || 'novel-output';
-  let urlFile = process.env.NOVEL_URL_FILE?.trim() || 'chapters_urls.txt';
-  let mergeTitle = '';
-  const rest = [];
-  for (const a of argv) {
-    if (a.startsWith('--out-dir=')) outputDir = a.slice(10).trim();
-    else if (a.startsWith('--url-file=')) urlFile = a.slice(11).trim();
-    else if (a.startsWith('--merge-title=')) mergeTitle = a.slice(14).trim();
-    else rest.push(a);
-  }
-  return { outputDir, urlFile, mergeTitle, restArgv: rest };
-}
-
-function resolveUrlFilePath(urlFile) {
-  if (path.isAbsolute(urlFile)) return urlFile;
-  return path.join(PROJECT_ROOT, urlFile);
-}
-
-function readUrlFileSync(absPath) {
-  const buf = fs.readFileSync(absPath);
-  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
-    return buf.slice(2).toString('utf16le');
-  }
-  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
-    return buf.slice(2).toString('utf16be');
-  }
-  return buf.toString('utf8');
-}
-
-function chaptersFromUrlFileText(raw) {
-  const text = String(raw).replace(/^﻿/, '');
-  return text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith('#'))
-    .filter((l) => /^https?:\/\//i.test(l))
-    .map((href) => ({ href, title: path.basename(href) }));
-}
-
 function adFreeText(raw) {
   // Remove common ad lines that appear in the decrypted content
   return raw
@@ -255,7 +214,7 @@ function adFreeText(raw) {
 }
 
 async function main() {
-  const { outputDir, urlFile, mergeTitle, restArgv } = extractScrapeFlags(process.argv.slice(2));
+  const { outputDir, urlFile, mergeTitle, restArgv } = extractFlags(process.argv.slice(2));
   const manifestFile = path.join(outputDir, 'chapters_manifest.json');
   const chaptersDir = path.join(outputDir, 'chapters');
 

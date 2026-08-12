@@ -27,6 +27,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const { chromium } = require('playwright');
+const { sanitizeFilePart } = require(path.join(__dirname, '..', 'lib', 'scraper-common.js'));
 
 /** 认为 .wen 解码成功的最小字符数（过短则仍走 DOM） */
 const MIN_WEN_PLAIN_LEN = 50;
@@ -93,14 +94,6 @@ function normalizeCatalogUrl(u) {
   } catch {
     return u;
   }
-}
-
-function sanitizeFilePart(s) {
-  return String(s)
-    .replace(/[\\/:*?"<>|]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120);
 }
 
 /** seq 为目录顺序 1-based，与 chapters/001_*.txt 序号一致 */

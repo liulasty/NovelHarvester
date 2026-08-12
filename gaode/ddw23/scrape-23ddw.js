@@ -14,7 +14,21 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
-const { chineseNumeralToInt } = require(path.join(__dirname, '..', 'lib', 'chinese-numeral.js'));
+const {
+  sanitizeFilePart,
+  mergeChapterLists,
+  isTransientNavError,
+  stripAdLines,
+  stripLeadingNoise,
+  parsePageFraction,
+  chunkImpliesMorePages,
+  extractFlags,
+  useHeadedLaunch,
+  resolveUrlFilePath,
+  readUrlFileSync,
+  chaptersFromUrlFileText,
+  appendFailureLog,
+} = require(path.join(__dirname, '..', 'lib', 'scraper-common.js'));
 
 const MERGE_NOVEL = path.join(__dirname, '..', '..', 'merge-novel.js');
 const PROJECT_ROOT = path.join(__dirname, '..', '..');
@@ -23,25 +37,16 @@ const GOTO_OPTS = { waitUntil: 'domcontentloaded', timeout: 90000 };
 const GOTO_FALLBACK_OPTS = { waitUntil: 'load', timeout: 90000 };
 const CONTENT_SEL = '#content';
 const MIN_BODY_CHARS = 40;
-const DEFAULT_URL_FILE = 'chapters_urls.txt';
 
-function useHeadedLaunch() {
-  return process.env.NOVEL_HEADLESS === '0' || process.env.DDW23_HEADED === '1';
-}
+const STRIP_OPTS = {
+  adRe: /请记住本书|最新章节.*首发|手机阅读|章节错误|报错欠更|本站永久域名|请加入收藏/i,
+  pageRe: /本章未完|未完待续|请点击下一页|下页继续|下一页继续阅读|点击下一页继续阅读/i,
+};
 
 function resolveStorageState() {
   const s = process.env.DDW23_STORAGE_STATE?.trim();
   if (!s) return null;
   return path.isAbsolute(s) ? s : path.join(PROJECT_ROOT, s);
-}
-
-function isTransientNavError(e) {
-  const msg = e?.message || String(e);
-  return /Execution context was destroyed/i.test(msg) ||
-    /Target page, context or browser has been closed/i.test(msg) ||
-    /Navigation failed/i.test(msg) ||
-    /net::ERR_ABORTED/i.test(msg) ||
-    /most likely because of a navigation/i.test(msg);
 }
 
 /** 从 /du/51/51866/ → { origin, category: '51', bookId: '51866' } */
@@ -54,82 +59,6 @@ function parseEntryUrl(entryUrl) {
 
 function catalogUrl(loc) {
   return `${loc.origin}/du/${loc.category}/${loc.bookId}/`;
-}
-
-function chapterNumberFromTitle(title) {
-  const t = String(title || '').trim();
-  const m = t.match(/第\s*(\d+)\s*章/);
-  if (m) return parseInt(m[1], 10);
-  const mc = t.match(/第\s*([零一二三四五六七八九十百千万两廿卅]+)\s*章/);
-  if (mc) {
-    const n = chineseNumeralToInt(mc[1]);
-    if (!Number.isNaN(n) && n >= 0) return n;
-  }
-  if (/楔子|序章|^序$|前言/.test(t)) return -1;
-  if (/番外/.test(t)) return 1e9;
-  return null;
-}
-
-function titleLooksLikeChapterHeading(title) {
-  return /第\s*(?:\d+|[零一二三四五六七八九十百千万两廿卅]+)\s*章/.test(String(title || ''));
-}
-
-function sanitizeFilePart(s) {
-  return String(s)
-    .replace(/[\\/:*?"<>|]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120);
-}
-
-function mergeChapterLists(mainRows, latestRows) {
-  const byHref = new Map();
-  for (const r of mainRows) {
-    const ex = byHref.get(r.href);
-    if (!ex) byHref.set(r.href, { href: r.href, title: r.title, inMain: true, inLatest: false });
-    else {
-      ex.inMain = true;
-      if (titleLooksLikeChapterHeading(r.title)) ex.title = r.title;
-    }
-  }
-  for (const r of latestRows) {
-    const ex = byHref.get(r.href);
-    if (!ex) byHref.set(r.href, { href: r.href, title: r.title, inMain: false, inLatest: true });
-    else ex.inLatest = true;
-  }
-
-  // 按章号去重：同一章出现两个不同 URL 时保留正文区的条目
-  const byNum = new Map();
-  for (const x of byHref.values()) {
-    const num = chapterNumberFromTitle(x.title);
-    if (num == null || Number.isNaN(num)) continue;
-    const existing = byNum.get(num);
-    if (!existing) { byNum.set(num, x); continue; }
-    // 优先保留 inMain 的；都 inMain 则保留阿拉伯数字标题（更规范）
-    if (!existing.inMain && x.inMain) { byNum.set(num, x); }
-    else if (existing.inMain === x.inMain) {
-      const existingIsArabic = /第\s*\d+\s*章/.test(existing.title);
-      const xIsArabic = /第\s*\d+\s*章/.test(x.title);
-      if (!existingIsArabic && xIsArabic) byNum.set(num, x);
-    }
-  }
-  const dedupedHrefs = new Set(Array.from(byNum.values(), (v) => v.href));
-
-  const body = [];
-  const tail = [];
-  for (const x of byHref.values()) {
-    // 跳过被按章号去重保留的重复条目
-    const num2 = chapterNumberFromTitle(x.title);
-    if (num2 != null && !Number.isNaN(num2) && !dedupedHrefs.has(x.href)) continue;
-    const sk = num2 != null && !Number.isNaN(num2) ? num2 : 1e6;
-    const item = { href: x.href, title: x.title, sk };
-    if (x.inMain) body.push(item);
-    else tail.push(item);
-  }
-  const cmp = (a, b) => a.sk - b.sk || a.title.localeCompare(b.title, 'zh-Hans-CN');
-  body.sort(cmp);
-  tail.sort(cmp);
-  return [...body, ...tail].map(({ href, title }) => ({ href, title }));
 }
 
 // --- Catalog helpers ---
@@ -298,60 +227,6 @@ async function waitForChapterBody(page, phase, timeoutMs) {
   throw new Error(`[23ddw] ${phase} 正文等待超时（title=${(await page.title().catch(() => '')).slice(0, 80)}）`);
 }
 
-function parsePageFraction(text) {
-  const t = String(text || '');
-  const patterns = [
-    /[（(]第\s*(\d+)\s*页\s*[\/／]\s*共\s*(\d+)\s*页[）)]/u,
-    /[（(]第\s*(\d+)\s*页\s*[\/／]\s*(\d+)\s*页[）)]/u,
-    /第\s*(\d+)\s*页\s*[\/／]\s*共\s*(\d+)\s*页/u,
-    /第\s*(\d+)\s*[\/／]\s*(\d+)\s*页/u,
-  ];
-  for (const re of patterns) {
-    const m = t.match(re);
-    if (m) return [parseInt(m[1], 10), parseInt(m[2], 10)];
-  }
-  return null;
-}
-
-function chunkImpliesMorePages(chunk) {
-  return /本章未完|未完待续|请点击下一页|下页继续|下一页继续|点击下一页继续阅读/i.test(String(chunk || ''));
-}
-
-function stripAdLines(text) {
-  return String(text)
-    .split(/\r?\n/)
-    .filter((line) => {
-      const s = line.trim();
-      if (!s) return true;
-      if (/请记住本书|最新章节.*首发|手机阅读|章节错误|报错欠更|本站永久域名|请加入收藏/i.test(s)) return false;
-      if (/本章未完|未完待续|请点击下一页|下页继续|下一页继续阅读|点击下一页继续阅读/i.test(s)) return false;
-      return true;
-    })
-    .join('\n')
-    .trim();
-}
-
-/** 顶点正文前常见行：与 h1 重复的章标题、分页提示 */
-function isLeadingNoiseLine(trimmed) {
-  const t = String(trimmed || '').trim();
-  if (!t) return false;
-  if (/^第\s*[\d零一二三四五六七八九十百千万两]+\s*章/u.test(t)) return true;
-  if (/^[（(]第\s*\d+\s*\/\s*\d+\s*页[）)]$/.test(t)) return true;
-  return false;
-}
-
-function stripLeadingNoise(text) {
-  const lines = String(text).split(/\r?\n/);
-  let i = 0;
-  while (i < lines.length) {
-    const t = lines[i].trim();
-    if (t === '') { i++; continue; }
-    if (isLeadingNoiseLine(t)) { i++; continue; }
-    break;
-  }
-  return lines.slice(i).join('\n').trim();
-}
-
 async function extractChapterText(page, chapterUrl) {
   const u = new URL(chapterUrl);
   const m = u.pathname.match(/^\/du\/\d+\/\d+\/(\d+)(?:_\d+)?\.html$/i);
@@ -377,7 +252,7 @@ async function extractChapterText(page, chapterUrl) {
   }
 
   const firstRaw = await page.$eval(CONTENT_SEL, (el) => el.innerText.trim()).catch(() => '');
-  const firstChunk = stripLeadingNoise(stripAdLines(firstRaw));
+  const firstChunk = stripLeadingNoise(stripAdLines(firstRaw, STRIP_OPTS));
   if (firstChunk.length < 25) throw new Error(`正文首页内容过短: ${chapterUrl}`);
 
   const h1 = (await page.$eval('h1', (el) => el.textContent.trim()).catch(() => '')) + ' ';
@@ -420,7 +295,7 @@ async function extractChapterText(page, chapterUrl) {
     pageFailStreak = 0;
 
     const raw = await page.$eval(CONTENT_SEL, (el) => el.innerText.trim()).catch(() => '');
-    const chunk = stripLeadingNoise(stripAdLines(raw));
+    const chunk = stripLeadingNoise(stripAdLines(raw, STRIP_OPTS));
     if (chunk.length < 50) {
       shortStreak++;
       if (shortStreak >= 3) break;
@@ -450,40 +325,6 @@ async function extractChapterText(page, chapterUrl) {
 
 // --- Main ---
 
-function extractFlags(argv) {
-  let outputDir = process.env.NOVEL_OUTPUT_DIR?.trim() || 'novel-output';
-  let urlFile = process.env.NOVEL_URL_FILE?.trim() || DEFAULT_URL_FILE;
-  let mergeTitle = '';
-  const rest = [];
-  for (const a of argv) {
-    if (a.startsWith('--out-dir=')) outputDir = a.slice(10).trim();
-    else if (a.startsWith('--url-file=')) urlFile = a.slice(11).trim();
-    else if (a.startsWith('--merge-title=')) mergeTitle = a.slice(14).trim();
-    else rest.push(a);
-  }
-  return { outputDir, urlFile, mergeTitle, restArgv: rest };
-}
-
-function resolveUrlFilePath(urlFile) {
-  return path.isAbsolute(urlFile) ? urlFile : path.join(PROJECT_ROOT, urlFile);
-}
-
-function readUrlFile(absPath) {
-  const buf = fs.readFileSync(absPath);
-  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) return buf.slice(2).toString('utf16le');
-  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) return buf.slice(2).toString('utf16be');
-  return buf.toString('utf8');
-}
-
-function chaptersFromUrlFileText(raw) {
-  return String(raw).replace(/^﻿/, '')
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith('#'))
-    .filter((l) => /^https?:\/\//i.test(l))
-    .map((href) => ({ href, title: path.basename(href) }));
-}
-
 async function main() {
   const { outputDir, urlFile, mergeTitle, restArgv } = extractFlags(process.argv.slice(2));
   const manifestFile = path.join(outputDir, 'chapters_manifest.json');
@@ -502,7 +343,7 @@ async function main() {
 
   if (forceChapters) console.log('[23ddw] --force：将覆盖已存在的章节 txt');
 
-  const headed = useHeadedLaunch();
+  const headed = useHeadedLaunch({ envKey: 'DDW23_HEADED' });
   if (headed) console.log('[23ddw] 使用有头浏览器（NOVEL_HEADLESS=0 或 DDW23_HEADED=1）');
   const storageStatePath = resolveStorageState();
   if (storageStatePath && fs.existsSync(storageStatePath)) console.log('[23ddw] 使用 storageState:', storageStatePath);
@@ -526,7 +367,7 @@ async function main() {
   if (useFileOnly) {
     const abs = resolveUrlFilePath(urlFile);
     if (!fs.existsSync(abs)) { console.error(`--file 但未找到: ${abs}`); await browser.close(); process.exit(1); }
-    chapters = chaptersFromUrlFileText(readUrlFile(abs));
+    chapters = chaptersFromUrlFileText(readUrlFileSync(abs));
     console.log(`从 ${abs} 读取 ${chapters.length} 个 URL`);
   } else if (discoverUrl) {
     console.log('[23ddw] 从书籍目录页发现章节:', discoverUrl);
@@ -572,11 +413,9 @@ async function main() {
       const errMsg = e?.message || String(e);
       console.log(`失败: ${errMsg}`);
       console.error(`[23ddw] 章节抓取失败 index=${i + 1}/${total} title=${title} href=${href} error=${errMsg}`);
-      try {
-        fs.appendFileSync(failureLogPath, JSON.stringify({
-          at: new Date().toISOString(), index: i + 1, title, href, error: errMsg,
-        }) + '\n', 'utf8');
-      } catch (_) {}
+      appendFailureLog(failureLogPath, {
+        at: new Date().toISOString(), index: i + 1, title, href, error: errMsg,
+      });
     }
   }
 

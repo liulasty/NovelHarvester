@@ -21,71 +21,33 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
+const {
+  sanitizeFilePart,
+  mergeChapterLists,
+  isTransientNavError,
+  stripAdLines,
+  stripLeadingNoise,
+  extractFlags,
+  useHeadedLaunch,
+  resolveUrlFilePath,
+  readUrlFileSync,
+  chaptersFromUrlFileText,
+} = require(path.join(__dirname, '..', 'lib', 'scraper-common.js'));
 
 const MERGE_NOVEL = path.join(__dirname, '..', '..', 'merge-novel.js');
 const PROJECT_ROOT = path.join(__dirname, '..', '..');
-const { chineseNumeralToInt } = require(path.join(__dirname, '..', 'lib', 'chinese-numeral.js'));
 
-const DEFAULT_URL_FILE = 'chapters_urls.txt';
 const DEFAULT_CHAPTERS_LIST_URL = 'http://www.bookszw.com/22/22313/';
 
 const GOTO_OPTS = { waitUntil: 'domcontentloaded', timeout: 120000 };
 
 const CONTENT_SELECTORS = ['#content', '#contents', '#chaptercontent', '.ReadAjax_content', '.showtxt', '#BookText'];
 
-/** 从标题解析「第 n 章」用于排序；无则 null */
-function chapterNumberFromTitle(title) {
-  const t = String(title || '').trim();
-  const m = t.match(/第\s*(\d+)\s*章/);
-  if (m) return parseInt(m[1], 10);
-  const mc = t.match(/第\s*([零一二三四五六七八九十百千万两廿卅]+)\s*章/);
-  if (mc) {
-    const n = chineseNumeralToInt(mc[1]);
-    if (!Number.isNaN(n) && n >= 0) return n;
-  }
-  if (/楔子|序章|^序$|前言/.test(t)) return -1;
-  if (/番外/.test(t)) return 1e9;
-  if (/开始阅读|点我阅读|请先阅读|立即阅读/.test(t)) return 0;
-  return null;
-}
-
-function titleLooksLikeChapterHeading(title) {
-  return /第\s*(?:\d+|[零一二三四五六七八九十百千万两廿卅]+)\s*章/.test(String(title || ''));
-}
-
-/**
- * 合并多页目录：正文区（非「最新」dt 下）按章号升序；仅出现在「最新」区且不在正文区的链接排在最后（亦按章号）。
- */
-function mergeBookszwChapterLists(mainRows, latestRows) {
-  const byHref = new Map();
-  for (const r of mainRows) {
-    const ex = byHref.get(r.href);
-    if (!ex) byHref.set(r.href, { href: r.href, title: r.title, inMain: true, inLatest: false });
-    else {
-      ex.inMain = true;
-      if (titleLooksLikeChapterHeading(r.title)) ex.title = r.title;
-    }
-  }
-  for (const r of latestRows) {
-    const ex = byHref.get(r.href);
-    if (!ex) byHref.set(r.href, { href: r.href, title: r.title, inMain: false, inLatest: true });
-    else ex.inLatest = true;
-  }
-
-  const body = [];
-  const tail = [];
-  for (const x of byHref.values()) {
-    const num = chapterNumberFromTitle(x.title);
-    const sk = num != null && !Number.isNaN(num) ? num : 1e6;
-    const item = { href: x.href, title: x.title, sk };
-    if (x.inMain) body.push(item);
-    else tail.push(item);
-  }
-  const cmp = (a, b) => a.sk - b.sk || a.title.localeCompare(b.title, 'zh-Hans-CN');
-  body.sort(cmp);
-  tail.sort(cmp);
-  return [...body, ...tail].map(({ href, title }) => ({ href, title }));
-}
+const STRIP_OPTS = {
+  adRe: /请记住本书首发域名|最新章节.*首发|手机阅读|章节错误|报错欠更/,
+  pageRe: /本章未完|未完待续|请点击下一页|下页继续|下一页继续阅读|点击下一页继续阅读/,
+};
+const NOISE_OPTS = { extraNoiseRe: /^(开始阅读|点我阅读|请先阅读|立即阅读)$/ };
 
 /** 正文页 h1/title/文末 中的 第M/N页、第M页/共N页 等 */
 function parsePageFractionFromText(text) {
@@ -122,18 +84,6 @@ function normalizeTextPrefix(s, n) {
     .slice(0, n);
 }
 
-function sanitizeFilePart(s) {
-  return String(s)
-    .replace(/[\\/:*?"<>|]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120);
-}
-
-function useHeadedLaunch() {
-  return process.env.NOVEL_HEADLESS === '0' || process.env.BOOKSZW_HEADED === '1';
-}
-
 function resolveStorageStatePath() {
   const s = process.env.BOOKSZW_STORAGE_STATE?.trim();
   if (!s) return null;
@@ -168,18 +118,6 @@ function normalizeBooksEntryUrl(url) {
   return u.href;
 }
 
-/** CF 通过后整页跳转时，evaluate 可能落在「导航中途」而抛错，应视为尚未就绪并继续轮询 */
-function isTransientNavigationEvaluateError(e) {
-  const msg = e?.message || String(e);
-  return (
-    /Execution context was destroyed/i.test(msg) ||
-    /Target page, context or browser has been closed/i.test(msg) ||
-    /Navigation failed/i.test(msg) ||
-    /net::ERR_ABORTED/i.test(msg) ||
-    /most likely because of a navigation/i.test(msg)
-  );
-}
-
 async function catalogReadyProbe(page, loc) {
   try {
     return await page.evaluate(
@@ -203,7 +141,7 @@ async function catalogReadyProbe(page, loc) {
       { c: loc.category, b: loc.bookId }
     );
   } catch (e) {
-    if (isTransientNavigationEvaluateError(e)) {
+    if (isTransientNavError(e)) {
       return { ok: false, reason: 'navigating' };
     }
     throw e;
@@ -234,7 +172,7 @@ async function waitForCatalogReady(page, phase, loc) {
       console.log(`[bookszw] … 已等待 ${Math.floor(elapsed)}s | ${title || '(no title)'}`);
     }
 
-    if (!warnedHeadlessCf && !useHeadedLaunch() && elapsed > 20 && probe.reason === 'cf_title') {
+    if (!warnedHeadlessCf && !useHeadedLaunch({ envKey: 'BOOKSZW_HEADED' }) && elapsed > 20 && probe.reason === 'cf_title') {
       warnedHeadlessCf = true;
       console.warn(
         '[bookszw] 仍停留在 Cloudflare「Just a moment」；无头模式通常无法通过。请 Ctrl+C 后：CMD 执行 set NOVEL_HEADLESS=0，或 PowerShell 执行 $env:NOVEL_HEADLESS = "0"，再运行。'
@@ -265,7 +203,7 @@ async function chapterBodyProbe(page) {
       return { ok: false, reason: 'no_body' };
     }, CONTENT_SELECTORS);
   } catch (e) {
-    if (isTransientNavigationEvaluateError(e)) {
+    if (isTransientNavError(e)) {
       return { ok: false, reason: 'navigating' };
     }
     throw e;
@@ -527,52 +465,9 @@ async function discoverChapters(page, entryUrl) {
     listUrl = next;
   }
 
-  const merged = mergeBookszwChapterLists(allMain, allLatest);
+  const merged = mergeChapterLists(allMain, allLatest, { dedupeByNum: false });
   console.log(`[bookszw] 合并排序后共 ${merged.length} 章（正文序 + 仅最新区补尾）`);
   return merged;
-}
-
-function stripAdLines(text) {
-  return String(text)
-    .split(/\r?\n/)
-    .filter((line) => {
-      const s = line.trim();
-      if (!s) return true;
-      if (/请记住本书首发域名|最新章节.*首发|手机阅读|章节错误|报错欠更/.test(s)) return false;
-      if (/本章未完|未完待续|请点击下一页|下页继续|下一页继续阅读|点击下一页继续阅读/.test(s)) return false;
-      return true;
-    })
-    .join('\n')
-    .trim();
-}
-
-/** #content 顶常见重复：目录文案、与 h1 重复的「第×章」、单独的分页行 */
-function isLeadingChapterNoiseLine(trimmed) {
-  const t = String(trimmed || '').trim();
-  if (!t) return false;
-  if (/^(开始阅读|点我阅读|请先阅读|立即阅读)$/.test(t)) return true;
-  if (/^第\s*[\d零一二三四五六七八九十百千万两]+\s*章/u.test(t)) return true;
-  if (/^[（(]第\s*\d+\s*\/\s*\d+\s*页[）)]$/.test(t)) return true;
-  return false;
-}
-
-function stripLeadingChapterHeadNoise(text) {
-  const lines = String(text).split(/\r?\n/);
-  let i = 0;
-  while (i < lines.length) {
-    const raw = lines[i];
-    const t = raw.trim();
-    if (t === '') {
-      i++;
-      continue;
-    }
-    if (isLeadingChapterNoiseLine(t)) {
-      i++;
-      continue;
-    }
-    break;
-  }
-  return lines.slice(i).join('\n').trim();
 }
 
 async function resolveContentSelector(page) {
@@ -593,7 +488,7 @@ async function extractChapterPlainText(page, chapterUrl) {
     const sel = await resolveContentSelector(page);
     await page.waitForSelector(sel, { timeout: 25000 });
     const raw = await page.$eval(sel, (el) => el.innerText.trim());
-    return stripLeadingChapterHeadNoise(stripAdLines(raw));
+    return stripLeadingNoise(stripAdLines(raw, STRIP_OPTS), NOISE_OPTS);
   }
 
   const { origin, category, bookId, chapterId } = stem;
@@ -612,7 +507,7 @@ async function extractChapterPlainText(page, chapterUrl) {
   // 处理第一页
   const sel = await resolveContentSelector(page);
   const firstRaw = await page.$eval(sel, (el) => el.innerText.trim()).catch(() => '');
-  const firstChunk = stripLeadingChapterHeadNoise(stripAdLines(firstRaw));
+  const firstChunk = stripLeadingNoise(stripAdLines(firstRaw, STRIP_OPTS), NOISE_OPTS);
   if (firstChunk.length < 25) throw new Error(`正文首页内容过短: ${chapterUrl}`);
 
   const head = (await page.$eval('h1', (el) => el.textContent.trim()).catch(() => '')) + ' ';
@@ -623,7 +518,7 @@ async function extractChapterPlainText(page, chapterUrl) {
 
   const hasMoreHint = chunkImpliesMorePages(firstRaw);
   if (!hasMoreHint && (!pageFrac || pageFrac[0] >= pageFrac[1])) {
-    return stripLeadingChapterHeadNoise(parts.join('\n\n').trim());
+    return stripLeadingNoise(parts.join('\n\n').trim(), NOISE_OPTS);
   }
 
   // 快速探测 _1.html 确认是否真有多页（站点底栏常含"本章未完"误导）
@@ -635,7 +530,7 @@ async function extractChapterPlainText(page, chapterUrl) {
     if (probeText.length > 50) hasMorePages = true;
   } catch { /* 单页 */ }
 
-  if (!hasMorePages) return stripLeadingChapterHeadNoise(parts.join('\n\n').trim());
+  if (!hasMorePages) return stripLeadingNoise(parts.join('\n\n').trim(), NOISE_OPTS);
 
   // 后续分页
   const SUB_PAGE_READY_TIMEOUT = 10000;
@@ -656,7 +551,7 @@ async function extractChapterPlainText(page, chapterUrl) {
 
     const s = await resolveContentSelector(page);
     const raw = await page.$eval(s, (el) => el.innerText.trim()).catch(() => '');
-    const chunk = stripLeadingChapterHeadNoise(stripAdLines(raw));
+    const chunk = stripLeadingNoise(stripAdLines(raw, STRIP_OPTS), NOISE_OPTS);
     if (chunk.length < 50) {
       shortStreak++;
       if (shortStreak >= 3) break;
@@ -683,51 +578,11 @@ async function extractChapterPlainText(page, chapterUrl) {
   if (parts.length === 0) {
     throw new Error(`正文为空: ${chapterUrl}`);
   }
-  return stripLeadingChapterHeadNoise(parts.join('\n\n').trim());
-}
-
-function resolveUrlFilePath(urlFile) {
-  if (path.isAbsolute(urlFile)) return urlFile;
-  return path.join(PROJECT_ROOT, urlFile);
-}
-
-function readUrlFileSync(absPath) {
-  const buf = fs.readFileSync(absPath);
-  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
-    return buf.slice(2).toString('utf16le');
-  }
-  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
-    return buf.slice(2).toString('utf16be');
-  }
-  return buf.toString('utf8');
-}
-
-function chaptersFromUrlFileText(raw) {
-  const text = String(raw).replace(/^\uFEFF/, '');
-  return text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith('#'))
-    .filter((l) => /^https?:\/\//i.test(l))
-    .map((href) => ({ href, title: path.basename(href) }));
-}
-
-function extractScrapeFlags(argv) {
-  let outputDir = process.env.NOVEL_OUTPUT_DIR?.trim() || 'novel-output';
-  let urlFile = process.env.NOVEL_URL_FILE?.trim() || DEFAULT_URL_FILE;
-  let mergeTitle = '';
-  const rest = [];
-  for (const a of argv) {
-    if (a.startsWith('--out-dir=')) outputDir = a.slice(10).trim();
-    else if (a.startsWith('--url-file=')) urlFile = a.slice(11).trim();
-    else if (a.startsWith('--merge-title=')) mergeTitle = a.slice(14).trim();
-    else rest.push(a);
-  }
-  return { outputDir, urlFile, mergeTitle, restArgv: rest };
+  return stripLeadingNoise(parts.join('\n\n').trim(), NOISE_OPTS);
 }
 
 async function main() {
-  const { outputDir, urlFile, mergeTitle, restArgv } = extractScrapeFlags(process.argv.slice(2));
+  const { outputDir, urlFile, mergeTitle, restArgv } = extractFlags(process.argv.slice(2));
   const manifestFile = path.join(outputDir, 'chapters_manifest.json');
   const chaptersDir = path.join(outputDir, 'chapters');
 
@@ -746,7 +601,7 @@ async function main() {
   fs.mkdirSync(outputDir, { recursive: true });
   fs.mkdirSync(chaptersDir, { recursive: true });
 
-  const headed = useHeadedLaunch();
+  const headed = useHeadedLaunch({ envKey: 'BOOKSZW_HEADED' });
   if (headed) {
     console.log('[bookszw] 使用有头浏览器（NOVEL_HEADLESS=0 或 BOOKSZW_HEADED=1）');
   }

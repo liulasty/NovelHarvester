@@ -20,7 +20,18 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
-const { chineseNumeralToInt } = require(path.join(__dirname, '..', 'lib', 'chinese-numeral.js'));
+const {
+  sanitizeFilePart,
+  mergeChapterLists,
+  isTransientNavError,
+  stripAdLines,
+  extractFlags,
+  useHeadedLaunch,
+  resolveUrlFilePath,
+  readUrlFileSync,
+  chaptersFromUrlFileText,
+  appendFailureLog,
+} = require(path.join(__dirname, '..', 'lib', 'scraper-common.js'));
 
 const MERGE_NOVEL = path.join(__dirname, '..', '..', 'merge-novel.js');
 const PROJECT_ROOT = path.join(__dirname, '..', '..');
@@ -30,27 +41,15 @@ const GOTO_FALLBACK_OPTS = { waitUntil: 'load', timeout: 120000 };
 const CONTENT_SELECTORS = ['#rtext', '.readcontent', '#acontent', '#chaptercontent', '#content'];
 const MIN_CHAPTER_BODY_CHARS = 40;
 
-function useHeadedLaunch() {
-  return process.env.NOVEL_HEADLESS === '0' || process.env.X69KU_HEADED === '1';
-}
+const STRIP_OPTS = {
+  adRe: /请记住本书|最新章节.*首发|手机阅读|章节错误|报错欠更|本站永久域名|请加入收藏|更多精彩小说|永久地址/i,
+};
 
 function resolveStorageStatePath69() {
   const s = process.env.X69KU_STORAGE_STATE?.trim();
   if (!s) return null;
   if (path.isAbsolute(s)) return s;
   return path.join(PROJECT_ROOT, s);
-}
-
-/** CF 通过后整页跳转时 evaluate 可能落在导航中途 */
-function isTransientNavigationEvaluateError(e) {
-  const msg = e?.message || String(e);
-  return (
-    /Execution context was destroyed/i.test(msg) ||
-    /Target page, context or browser has been closed/i.test(msg) ||
-    /Navigation failed/i.test(msg) ||
-    /net::ERR_ABORTED/i.test(msg) ||
-    /most likely because of a navigation/i.test(msg)
-  );
 }
 
 async function gotoWithRetry(page, url, label, primaryOpts) {
@@ -102,7 +101,7 @@ async function catalogReadyProbe69(page, loc) {
       { origin: loc.origin, bookId: loc.bookId }
     );
   } catch (e) {
-    if (isTransientNavigationEvaluateError(e)) {
+    if (isTransientNavError(e)) {
       return { ok: false, reason: 'navigating' };
     }
     throw e;
@@ -132,7 +131,7 @@ async function waitForCatalogReady69(page, phase, loc) {
       console.log(`[69xku] … 已等待 ${Math.floor(elapsed)}s | ${title || '(no title)'}`);
     }
 
-    if (!warnedHeadlessCf && !useHeadedLaunch() && elapsed > 20 && probe.reason === 'cf_title') {
+    if (!warnedHeadlessCf && !useHeadedLaunch({ envKey: 'X69KU_HEADED' }) && elapsed > 20 && probe.reason === 'cf_title') {
       warnedHeadlessCf = true;
       console.warn(
         '[69xku] 仍停留在 Cloudflare「Just a moment」；无头模式通常无法通过。请 Ctrl+C 后设置 NOVEL_HEADLESS=0 再运行，或配置 X69KU_STORAGE_STATE。'
@@ -168,7 +167,7 @@ async function chapterBodyProbe69(page) {
       { selectors: CONTENT_SELECTORS, minLen: MIN_CHAPTER_BODY_CHARS }
     );
   } catch (e) {
-    if (isTransientNavigationEvaluateError(e)) {
+    if (isTransientNavError(e)) {
       return { ok: false, reason: 'navigating' };
     }
     throw e;
@@ -208,64 +207,6 @@ async function waitForChapterBody69(page, phase) {
   throw new Error(msg);
 }
 
-function chapterNumberFromTitle(title) {
-  const t = String(title || '').trim();
-  const m = t.match(/第\s*(\d+)\s*章/);
-  if (m) return parseInt(m[1], 10);
-  const mc = t.match(/第\s*([零一二三四五六七八九十百千万两廿卅]+)\s*章/);
-  if (mc) {
-    const n = chineseNumeralToInt(mc[1]);
-    if (!Number.isNaN(n) && n >= 0) return n;
-  }
-  if (/楔子|序章|^序$|前言/.test(t)) return -1;
-  if (/番外/.test(t)) return 1e9;
-  if (/开始阅读|点我阅读|请先阅读|立即阅读/.test(t)) return 0;
-  return null;
-}
-
-function titleLooksLikeChapterHeading(title) {
-  return /第\s*(?:\d+|[零一二三四五六七八九十百千万两廿卅]+)\s*章/.test(String(title || ''));
-}
-
-function merge69xkuChapterLists(mainRows, latestRows) {
-  const byHref = new Map();
-  for (const r of mainRows) {
-    const ex = byHref.get(r.href);
-    if (!ex) byHref.set(r.href, { href: r.href, title: r.title, inMain: true, inLatest: false });
-    else {
-      ex.inMain = true;
-      if (titleLooksLikeChapterHeading(r.title)) ex.title = r.title;
-    }
-  }
-  for (const r of latestRows) {
-    const ex = byHref.get(r.href);
-    if (!ex) byHref.set(r.href, { href: r.href, title: r.title, inMain: false, inLatest: true });
-    else ex.inLatest = true;
-  }
-
-  const body = [];
-  const tail = [];
-  for (const x of byHref.values()) {
-    const num = chapterNumberFromTitle(x.title);
-    const sk = num != null && !Number.isNaN(num) ? num : 1e6;
-    const item = { href: x.href, title: x.title, sk };
-    if (x.inMain) body.push(item);
-    else tail.push(item);
-  }
-  const cmp = (a, b) => a.sk - b.sk || a.title.localeCompare(b.title, 'zh-Hans-CN');
-  body.sort(cmp);
-  tail.sort(cmp);
-  return [...body, ...tail].map(({ href, title }) => ({ href, title }));
-}
-
-function sanitizeFilePart(s) {
-  return String(s)
-    .replace(/[\\/:*?"<>|]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120);
-}
-
 function parseBookEntryUrl(entryUrl) {
   const u = new URL(entryUrl);
   const m = u.pathname.match(/^\/book\/(\d+)\/?$/i);
@@ -275,61 +216,6 @@ function parseBookEntryUrl(entryUrl) {
 
 function catalogUrl(loc) {
   return `${loc.origin}/book/${loc.bookId}/`;
-}
-
-function extractScrapeFlags(argv) {
-  let outputDir = process.env.NOVEL_OUTPUT_DIR?.trim() || 'novel-output';
-  let urlFile = process.env.NOVEL_URL_FILE?.trim() || 'chapters_urls.txt';
-  let mergeTitle = '';
-  const rest = [];
-  for (const a of argv) {
-    if (a.startsWith('--out-dir=')) outputDir = a.slice(10).trim();
-    else if (a.startsWith('--url-file=')) urlFile = a.slice(11).trim();
-    else if (a.startsWith('--merge-title=')) mergeTitle = a.slice(14).trim();
-    else rest.push(a);
-  }
-  return { outputDir, urlFile, mergeTitle, restArgv: rest };
-}
-
-function resolveUrlFilePath(urlFile) {
-  if (path.isAbsolute(urlFile)) return urlFile;
-  return path.join(PROJECT_ROOT, urlFile);
-}
-
-function readUrlFileSync(absPath) {
-  const buf = fs.readFileSync(absPath);
-  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
-    return buf.slice(2).toString('utf16le');
-  }
-  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
-    return buf.slice(2).toString('utf16be');
-  }
-  return buf.toString('utf8');
-}
-
-function chaptersFromUrlFileText(raw) {
-  const text = String(raw).replace(/^\uFEFF/, '');
-  return text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith('#'))
-    .filter((l) => /^https?:\/\//i.test(l))
-    .map((href) => ({ href, title: path.basename(href) }));
-}
-
-function stripAdLines(text) {
-  return String(text)
-    .split(/\r?\n/)
-    .filter((line) => {
-      const s = line.trim();
-      if (!s) return true;
-      if (/请记住本书|最新章节.*首发|手机阅读|章节错误|报错欠更|本站永久域名|请加入收藏|更多精彩小说|永久地址/i.test(s)) {
-        return false;
-      }
-      return true;
-    })
-    .join('\n')
-    .trim();
 }
 
 async function extractChapterLinkSections(page, loc) {
@@ -417,7 +303,7 @@ async function discoverChapters(page, entryUrl) {
   const nLat = chunk.latest.length;
   console.log(`[69xku] 本页目录: 全书区 ${nMain} 条, 最新区 ${nLat} 条`);
 
-  const merged = merge69xkuChapterLists(chunk.main, chunk.latest);
+  const merged = mergeChapterLists(chunk.main, chunk.latest, { dedupeByNum: false });
   console.log(`[69xku] 合并排序后共 ${merged.length} 章（全书序 + 仅最新区补尾）`);
   return merged;
 }
@@ -449,11 +335,11 @@ async function extractChapterPlainText(page, chapterUrl) {
   if (raw.length < MIN_CHAPTER_BODY_CHARS) {
     throw new Error(`正文过短（${raw.length} 字），选择器可能已失效: ${chapterUrl}`);
   }
-  return stripAdLines(raw);
+  return stripAdLines(raw, STRIP_OPTS);
 }
 
 async function main() {
-  const { outputDir, urlFile, mergeTitle, restArgv } = extractScrapeFlags(process.argv.slice(2));
+  const { outputDir, urlFile, mergeTitle, restArgv } = extractFlags(process.argv.slice(2));
   const manifestFile = path.join(outputDir, 'chapters_manifest.json');
   const chaptersDir = path.join(outputDir, 'chapters');
 
@@ -472,7 +358,7 @@ async function main() {
     console.log('[69xku] --force：将覆盖已存在且大于 100 字节的章节 txt');
   }
 
-  const headed = useHeadedLaunch();
+  const headed = useHeadedLaunch({ envKey: 'X69KU_HEADED' });
   if (headed) {
     console.log('[69xku] 使用有头浏览器（NOVEL_HEADLESS=0 或 X69KU_HEADED=1）');
   }
@@ -553,21 +439,13 @@ async function main() {
       const errMsg = e && e.message ? e.message : String(e);
       console.log(`失败: ${errMsg}`);
       console.error(`[69xku] 章节抓取失败 index=${i + 1}/${total} title=${title} href=${href} error=${errMsg}`);
-      try {
-        fs.appendFileSync(
-          failureLogPath,
-          `${JSON.stringify({
-            at: new Date().toISOString(),
-            index: i + 1,
-            title,
-            href,
-            error: errMsg,
-          })}\n`,
-          'utf8'
-        );
-      } catch (_) {
-        /* ignore log IO errors */
-      }
+      appendFailureLog(failureLogPath, {
+        at: new Date().toISOString(),
+        index: i + 1,
+        title,
+        href,
+        error: errMsg,
+      });
     }
   }
 

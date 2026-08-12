@@ -20,7 +20,13 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
-const { chineseNumeralToInt } = require(path.join(__dirname, '..', 'lib', 'chinese-numeral.js'));
+const {
+  sanitizeFilePart,
+  mergeChapterLists,
+  isTransientNavError,
+  extractFlags,
+  useHeadedLaunch,
+} = require(path.join(__dirname, '..', 'lib', 'scraper-common.js'));
 
 const MERGE_NOVEL = path.join(__dirname, '..', '..', 'merge-novel.js');
 const PROJECT_ROOT = path.join(__dirname, '..', '..');
@@ -28,19 +34,6 @@ const PROJECT_ROOT = path.join(__dirname, '..', '..');
 const GOTO_OPTS = { waitUntil: 'domcontentloaded', timeout: 60000 };
 const MIN_BODY_CHARS = 25;
 const CONTENT_SEL = '.content div.txt';
-
-function useHeadedLaunch() {
-  return process.env.NOVEL_HEADLESS === '0' || process.env.BIQUZI_HEADED === '1';
-}
-
-function isTransientNavError(e) {
-  const msg = e?.message || String(e);
-  return /Execution context was destroyed/i.test(msg) ||
-    /Target page, context or browser has been closed/i.test(msg) ||
-    /Navigation failed/i.test(msg) ||
-    /net::ERR_ABORTED/i.test(msg) ||
-    /most likely because of a navigation/i.test(msg);
-}
 
 /** 从目录 URL（或章节 URL）→ { origin, bookPath, catalogUrl } */
 function parseEntryUrl(entryUrl) {
@@ -51,80 +44,6 @@ function parseEntryUrl(entryUrl) {
   const ch = bookPath.match(/^(.+?)\/\d+(?:_\d+)?\.html$/i);
   if (ch) bookPath = ch[1];
   return { origin: u.origin, bookPath, catalogUrl: `${u.origin}/${bookPath}/` };
-}
-
-function chapterNumberFromTitle(title) {
-  const t = String(title || '').trim();
-  const m = t.match(/第\s*(\d+)\s*章/);
-  if (m) return parseInt(m[1], 10);
-  const mc = t.match(/第\s*([零一二三四五六七八九十百千万两廿卅]+)\s*章/);
-  if (mc) {
-    const n = chineseNumeralToInt(mc[1]);
-    if (!Number.isNaN(n) && n >= 0) return n;
-  }
-  if (/楔子|序章|^序$|前言/.test(t)) return -1;
-  if (/番外/.test(t)) return 1e9;
-  return null;
-}
-
-function titleLooksLikeChapterHeading(title) {
-  return /第\s*(?:\d+|[零一二三四五六七八九十百千万两廿卅]+)\s*章/.test(String(title || ''));
-}
-
-function sanitizeFilePart(s) {
-  return String(s)
-    .replace(/[\\/:*?"<>|]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120);
-}
-
-/** 与 ddw23 相同：全量区在前、最新章节区仅补尾，按章号去重排序 */
-function mergeChapterLists(mainRows, latestRows) {
-  const byHref = new Map();
-  for (const r of mainRows) {
-    const ex = byHref.get(r.href);
-    if (!ex) byHref.set(r.href, { href: r.href, title: r.title, inMain: true, inLatest: false });
-    else {
-      ex.inMain = true;
-      if (titleLooksLikeChapterHeading(r.title)) ex.title = r.title;
-    }
-  }
-  for (const r of latestRows) {
-    const ex = byHref.get(r.href);
-    if (!ex) byHref.set(r.href, { href: r.href, title: r.title, inMain: false, inLatest: true });
-    else ex.inLatest = true;
-  }
-
-  const byNum = new Map();
-  for (const x of byHref.values()) {
-    const num = chapterNumberFromTitle(x.title);
-    if (num == null || Number.isNaN(num)) continue;
-    const existing = byNum.get(num);
-    if (!existing) { byNum.set(num, x); continue; }
-    if (!existing.inMain && x.inMain) { byNum.set(num, x); }
-    else if (existing.inMain === x.inMain) {
-      const existingIsArabic = /第\s*\d+\s*章/.test(existing.title);
-      const xIsArabic = /第\s*\d+\s*章/.test(x.title);
-      if (!existingIsArabic && xIsArabic) byNum.set(num, x);
-    }
-  }
-  const dedupedHrefs = new Set(Array.from(byNum.values(), (v) => v.href));
-
-  const body = [];
-  const tail = [];
-  for (const x of byHref.values()) {
-    const num2 = chapterNumberFromTitle(x.title);
-    if (num2 != null && !Number.isNaN(num2) && !dedupedHrefs.has(x.href)) continue;
-    const sk = num2 != null && !Number.isNaN(num2) ? num2 : 1e6;
-    const item = { href: x.href, title: x.title, sk };
-    if (x.inMain) body.push(item);
-    else tail.push(item);
-  }
-  const cmp = (a, b) => a.sk - b.sk || a.title.localeCompare(b.title, 'zh-Hans-CN');
-  body.sort(cmp);
-  tail.sort(cmp);
-  return [...body, ...tail].map(({ href, title }) => ({ href, title }));
 }
 
 // --- Catalog helpers ---
@@ -318,18 +237,6 @@ async function extractChapterText(page, chapterUrl) {
 
 // --- Main ---
 
-function extractFlags(argv) {
-  let outputDir = process.env.NOVEL_OUTPUT_DIR?.trim() || 'novel-output';
-  let mergeTitle = '';
-  const rest = [];
-  for (const a of argv) {
-    if (a.startsWith('--out-dir=')) outputDir = a.slice(10).trim();
-    else if (a.startsWith('--merge-title=')) mergeTitle = a.slice(14).trim();
-    else rest.push(a);
-  }
-  return { outputDir, mergeTitle, restArgv: rest };
-}
-
 async function main() {
   const { outputDir, mergeTitle, restArgv } = extractFlags(process.argv.slice(2));
   const manifestFile = path.join(outputDir, 'chapters_manifest.json');
@@ -347,7 +254,7 @@ async function main() {
 
   if (forceChapters) console.log('[biquzi] --force：将覆盖已存在的章节 txt');
 
-  const headed = useHeadedLaunch();
+  const headed = useHeadedLaunch({ envKey: 'BIQUZI_HEADED' });
   if (headed) console.log('[biquzi] 使用有头浏览器（NOVEL_HEADLESS=0 或 BIQUZI_HEADED=1）');
 
   const browser = await chromium.launch({

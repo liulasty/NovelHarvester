@@ -23,11 +23,25 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
+const {
+  sanitizeFilePart,
+  titleLooksLikeChapterHeading,
+  stripAdLines,
+  extractFlags,
+  resolveUrlFilePath,
+  readUrlFileSync,
+  chaptersFromUrlFileText,
+} = require(path.join(__dirname, '..', 'lib', 'scraper-common.js'));
 
 const MERGE_NOVEL = path.join(__dirname, '..', '..', 'merge-novel.js');
 const PROJECT_ROOT = path.join(__dirname, '..', '..');
 
 const GOTO_OPTS = { waitUntil: 'domcontentloaded', timeout: 90000 };
+
+const STRIP_OPTS = {
+  adRe: /请记住本书|最新章节.*首发|手机阅读|章节错误|报错欠更|本站永久域名|请加入收藏|更多精彩小说|永久地址/i,
+};
+const HEADING_OPTS = { extraRe: /间章/ };
 
 function delay(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -83,15 +97,11 @@ async function gotoWithRetry(page, url, label) {
   throw lastErr;
 }
 
-function titleLooksLikeChapterHeading(title) {
-  return /第\s*(?:\d+|[零一二三四五六七八九十百千万两廿卅]+)\s*章|间章/.test(String(title || ''));
-}
-
 /** 按分页 DOM 顺序保留全书列表；用「最新章节」区链接的 title 覆盖同名 href（通常更完整）。 */
 function merge9kswChapterLists(mainRowsInOrder, latestRows) {
   const titleByHref = new Map(mainRowsInOrder.map((r) => [r.href, r.title]));
   for (const r of latestRows) {
-    if (titleLooksLikeChapterHeading(r.title)) titleByHref.set(r.href, r.title);
+    if (titleLooksLikeChapterHeading(r.title, HEADING_OPTS)) titleByHref.set(r.href, r.title);
   }
   const ordered = mainRowsInOrder.map((r) => ({
     href: r.href,
@@ -105,14 +115,6 @@ function merge9kswChapterLists(mainRowsInOrder, latestRows) {
     tail.push({ href: r.href, title: r.title });
   }
   return [...ordered, ...tail];
-}
-
-function sanitizeFilePart(s) {
-  return String(s)
-    .replace(/[\\/:*?"<>|]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120);
 }
 
 function parseNovelListUrl(entryUrl) {
@@ -131,61 +133,6 @@ function catalogPageUrl(loc, pageNum) {
   const u = new URL(base);
   u.searchParams.set('p', String(pageNum));
   return u.href;
-}
-
-function extractScrapeFlags(argv) {
-  let outputDir = process.env.NOVEL_OUTPUT_DIR?.trim() || 'novel-output';
-  let urlFile = process.env.NOVEL_URL_FILE?.trim() || 'chapters_urls.txt';
-  let mergeTitle = '';
-  const rest = [];
-  for (const a of argv) {
-    if (a.startsWith('--out-dir=')) outputDir = a.slice(10).trim();
-    else if (a.startsWith('--url-file=')) urlFile = a.slice(11).trim();
-    else if (a.startsWith('--merge-title=')) mergeTitle = a.slice(14).trim();
-    else rest.push(a);
-  }
-  return { outputDir, urlFile, mergeTitle, restArgv: rest };
-}
-
-function resolveUrlFilePath(urlFile) {
-  if (path.isAbsolute(urlFile)) return urlFile;
-  return path.join(PROJECT_ROOT, urlFile);
-}
-
-function readUrlFileSync(absPath) {
-  const buf = fs.readFileSync(absPath);
-  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
-    return buf.slice(2).toString('utf16le');
-  }
-  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
-    return buf.slice(2).toString('utf16be');
-  }
-  return buf.toString('utf8');
-}
-
-function chaptersFromUrlFileText(raw) {
-  const text = String(raw).replace(/^\uFEFF/, '');
-  return text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith('#'))
-    .filter((l) => /^https?:\/\//i.test(l))
-    .map((href) => ({ href, title: path.basename(href) }));
-}
-
-function stripAdLines(text) {
-  return String(text)
-    .split(/\r?\n/)
-    .filter((line) => {
-      const s = line.trim();
-      if (!s) return true;
-      if (/请记住本书|最新章节.*首发|手机阅读|章节错误|报错欠更|本站永久域名|请加入收藏|更多精彩小说|永久地址/i.test(s)) {
-        return false;
-      }
-      return true;
-    })
-    .join('\n')
-    .trim();
 }
 
 async function extractChapterSectionsOnePage(page, loc) {
@@ -346,7 +293,7 @@ async function extractChapterPlainText(page, chapterUrl) {
       }
 
       const raw = await page.$eval('#chapter-content', (el) => el.innerText.trim());
-      const cleaned = stripAdLines(raw);
+      const cleaned = stripAdLines(raw, STRIP_OPTS);
       if (!cleaned || cleaned.length < 40) {
         throw new Error('正文过短，可能仍被拦截或未加载完');
       }
@@ -365,7 +312,7 @@ async function extractChapterPlainText(page, chapterUrl) {
 }
 
 async function main() {
-  const { outputDir, urlFile, mergeTitle, restArgv } = extractScrapeFlags(process.argv.slice(2));
+  const { outputDir, urlFile, mergeTitle, restArgv } = extractFlags(process.argv.slice(2));
   const manifestFile = path.join(outputDir, 'chapters_manifest.json');
   const chaptersDir = path.join(outputDir, 'chapters');
 

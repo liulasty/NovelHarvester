@@ -21,6 +21,13 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
+const {
+  sanitizeFilePart,
+  extractFlags,
+  resolveUrlFilePath,
+  readUrlFileSync,
+  chaptersFromUrlFileText,
+} = require(path.join(__dirname, '..', 'lib', 'scraper-common.js'));
 
 const MERGE_NOVEL = path.join(__dirname, '..', '..', 'merge-novel.js');
 /** 项目根（含 chapters_urls.txt、novel-workflow.js），与当前工作目录无关 */
@@ -28,21 +35,12 @@ const PROJECT_ROOT = path.join(__dirname, '..', '..');
 
 const LIST_ITEM_SEL = 'div.content-wrapper ul li';
 const CONTENT_SEL = '.reader';
-const DEFAULT_URL_FILE = 'chapters_urls.txt';
 
 /** 训练学园 官方章节目录（可改为你自己的 /zh-hans/chapters/... 链接） */
 const DEFAULT_CHAPTERS_LIST_URL =
   'https://www.book18.org/zh-hans/chapters/%E6%80%A7%E5%A5%B4%E8%AE%AD%E7%BB%83%E5%AD%A6%E5%9B%AD';
 
 const GOTO_OPTS = { waitUntil: 'domcontentloaded', timeout: 60000 };
-
-function sanitizeFilePart(s) {
-  return String(s)
-    .replace(/[\\/:*?"<>|]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120);
-}
 
 function isDedicatedChaptersListUrl(url) {
   try {
@@ -81,50 +79,8 @@ async function extractReaderText(page, url) {
   return page.$eval(CONTENT_SEL, (el) => el.innerText.trim());
 }
 
-function resolveUrlFilePath(urlFile) {
-  if (path.isAbsolute(urlFile)) return urlFile;
-  return path.join(PROJECT_ROOT, urlFile);
-}
-
-/** 按 BOM 读取列表文件（兼容 UTF-8 / UTF-16 LE，避免 Windows 记事本另存为 UTF-16 后读成 0 条） */
-function readUrlFileSync(absPath) {
-  const buf = fs.readFileSync(absPath);
-  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
-    return buf.slice(2).toString('utf16le');
-  }
-  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
-    return buf.slice(2).toString('utf16be');
-  }
-  return buf.toString('utf8');
-}
-
-/** 从列表文件正文解析章节 URL（去 BOM、忽略空行与注释行） */
-function chaptersFromUrlFileText(raw) {
-  const text = String(raw).replace(/^\uFEFF/, '');
-  return text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith('#'))
-    .filter((l) => /^https?:\/\//i.test(l))
-    .map((href) => ({ href, title: path.basename(href) }));
-}
-
-function extractScrapeFlags(argv) {
-  let outputDir = process.env.NOVEL_OUTPUT_DIR?.trim() || 'novel-output';
-  let urlFile = process.env.NOVEL_URL_FILE?.trim() || DEFAULT_URL_FILE;
-  let mergeTitle = '';
-  const rest = [];
-  for (const a of argv) {
-    if (a.startsWith('--out-dir=')) outputDir = a.slice(10).trim();
-    else if (a.startsWith('--url-file=')) urlFile = a.slice(11).trim();
-    else if (a.startsWith('--merge-title=')) mergeTitle = a.slice(14).trim();
-    else rest.push(a);
-  }
-  return { outputDir, urlFile, mergeTitle, restArgv: rest };
-}
-
 async function main() {
-  const { outputDir, urlFile, mergeTitle, restArgv } = extractScrapeFlags(process.argv.slice(2));
+  const { outputDir, urlFile, mergeTitle, restArgv } = extractFlags(process.argv.slice(2));
   const manifestFile = path.join(outputDir, 'chapters_manifest.json');
   const chaptersDir = path.join(outputDir, 'chapters');
 
