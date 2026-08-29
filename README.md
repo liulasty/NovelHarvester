@@ -101,6 +101,7 @@ Also note: `9ksw/` and `kateman/` directories follow the same structure.
 | 69xku.com（69库） | [gaode/69xku/说明文档.md](gaode/69xku/说明文档.md) |
 | 9ksw.com（九库） | [gaode/9ksw/说明文档.md](gaode/9ksw/说明文档.md) |
 | www.kateman.net（书海阁） | [gaode/kateman/说明文档.md](gaode/kateman/说明文档.md) |
+| 73shu.cc（73书院；.com 已停站） | [gaode/73shu/说明文档.md](gaode/73shu/说明文档.md) |
 
 ## 常用命令
 
