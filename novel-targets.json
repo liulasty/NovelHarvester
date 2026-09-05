@@ -70,6 +70,14 @@
       "mergeTitle": "母女宠物饲养日记"
     },
     {
+      "id": "x69ku-21428",
+      "label": "69xku.com book/21428 神女逍遥录（69库 最新/全书目录）",
+      "scraper": "69xku",
+      "chaptersListUrl": "https://69xku.com/book/21428/",
+      "outputDir": "novel-output/x69ku-21428",
+      "mergeTitle": "神女逍遥录"
+    },
+    {
       "id": "9ksw-45382",
       "label": "9ksw.com novel45382（九库 分页目录 + conapi 正文）",
       "scraper": "9ksw",
@@ -156,6 +164,14 @@
       "chaptersListUrl": "http://www.73shu.cc/124/124192/",
       "outputDir": "novel-output/73shu-124192",
       "mergeTitle": "母子爱情（一）"
+    },
+    {
+      "id": "xbiquge345-80767",
+      "label": "笔趣阁小说网 xbiquge345.com 大漠谣（桐华，book/80767）",
+      "scraper": "xbiquge345",
+      "chaptersListUrl": "https://www.xbiquge345.com/book/80767/",
+      "outputDir": "novel-output/xbiquge345-80767",
+      "mergeTitle": "大漠谣"
     }
   ]
 }
