@@ -82,7 +82,7 @@ Also note: `9ksw/` and `kateman/` directories follow the same structure.
 | `urlFile` | 本地章节 URL 列表文件（每行一个 http 链接） |
 | `outputDir` | 书籍根目录，如 `novel-output/xnl`（其下会自动使用 `chapters/`、`merged/`） |
 | `mergeTitle` | 合并文件抬头书名（可空） |
-| `scraper` | 可选：与 `lib/orchestrator/registry.js` 中 `SCRAPER_TO_SCRIPT_REL` 键一致，如 `shuwen6`、`diyibanzhu`、`nzxs`、`bookszw`、`69xku`、`9ksw`、`kateman`、`book18`（缺省为 `book18`） |
+| `scraper` | 可选：与 `lib/orchestrator/registry.js` 中 `SCRAPER_TO_SCRIPT_REL` 键一致，如 `shuwen6`、`diyibanzhu`、`nzxs`、`bookszw`、`69xku`、`9ksw`、`kateman`、`book18`、`xbiquge345`（缺省为 `book18`） |
 | `enabled` | 可选：设为 `false` 时 Web 控制台不可启动该目标（列表仍可显示为灰显）；缺省为 `true`。`novel-workflow.js list` 会标注 `(disabled)`；仍可用 `node novel-workflow.js <id>` 直接指定 id 运行 |
 
 已配置 book18 书目示例：`xnl`（训练学园）、`xiaohua-xyz`（校花的许愿珠）；第一版主示例：`diyibanzhu-xzduo`（`scraper`: `diyibanzhu`）；nzxs 示例：`nzxs-xsz`（`scraper`: `nzxs`）；bookszw 示例：`bookszw-22313`（`scraper`: `bookszw`）；69库示例：`x69ku-49851`（`scraper`: `69xku`）。
@@ -102,6 +102,21 @@ Also note: `9ksw/` and `kateman/` directories follow the same structure.
 | 9ksw.com（九库） | [gaode/9ksw/说明文档.md](gaode/9ksw/说明文档.md) |
 | www.kateman.net（书海阁） | [gaode/kateman/说明文档.md](gaode/kateman/说明文档.md) |
 | 73shu.cc（73书院；.com 已停站） | [gaode/73shu/说明文档.md](gaode/73shu/说明文档.md) |
+| xbiquge345.com（笔趣阁小说网） | [gaode/xbiquge345/说明文档.md](gaode/xbiquge345/说明文档.md) |
+
+## 跨站书名搜索
+
+在**已集成站点**里真实搜索书名（Playwright），用于判断「某书在哪些站收录、URL 长什么样」，再决定加到 `novel-targets.json`。端点/字段固化在 `gaode/lib/site-search.js` 的 `SITE_SEARCHERS`；纯文本归一（繁/简、全/半角）在 `gaode/lib/site-search-util.js`（`npm test` 走 `node --test`）。
+
+```bash
+node search-novel.js 神女逍遥录                # 全站
+node search-novel.js 神女逍遥录 --site=69xku   # 只搜 69xku
+node search-novel.js 神女逍遥录 --verify       # 命中再开详情页确认 作者/最新章节/目录单页或分页
+node search-novel.js 神女逍遥录 --json         # stdout 仅输出 JSON
+# --site=a,b  --limit=K  --timeout-ms=N(每站预算)  --include-all(封锁/不可达站也硬试)
+```
+
+**站点覆盖（2026-09-05 实测）：** 无头可搜 `book18`/`shuwen6`/`diyibanzhu`/`9ksw`/`kateman`/`xncwxw`/`chengzixs`/`69xku`/`xbiquge345`；默认跳过 `bookszw`、`73shu`（Cloudflare）、`biquzi`（区域 403）、`23ddw`（502）、`nzxs`（chromium 直连超时），加 `--include-all` 硬试。命中为**站内搜索结果级别**，输出保留站点原文标题（同名多版本会并排，需人工挑选）；`--verify` 为尽力而为。
 
 ## 常用命令
 
