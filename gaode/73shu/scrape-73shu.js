@@ -2,7 +2,8 @@
  * 73书院（73shu.cc）工作流：
  * 1) 传入书籍目录 URL：`http://www.73shu.cc/{分类}/{书籍id}/`
  * 2) 目录：`#maina dl.chapter-list dd a` 单页全量章节（部分书目录只有 15 章）
- * 3) 正文：`#content` 单屏，无章内分页；「下一页」即下一章（顺序数字 ID）
+ * 3) 正文：`#content`，长章节按 `{id}_2.html` … 分屏（本书记录各章两屏）；
+ *    正文页顶部/底部「下一页」直指下一章，分页须按 `{id}_N.html` 自行探测拼接
  *
  * 注意：www.73shu.com 已停站（返回「抱歉，站点关闭」桩页）；www.73shu.cc 为同一站点镜像。
  *   传 .com URL 时脚本会自动改写为 .cc。
@@ -34,9 +35,12 @@ const CHAPTER_LIST_SEL = 'dl.chapter-list dd a';
 const MIN_BODY_CHARS = 40;
 
 const STRIP_OPTS = {
-  adRe: /请记住本书|最新章节.*首发|手机阅读|章节错误|报错欠更|本站永久域名|请加入收藏/i,
+  adRe: /请记住本书|最新章节.*首发|手机阅读|章节错误|报错欠更|本站永久域名|请加入收藏|<\/?p>|&lt;\/?p&gt;/i,
   pageRe: /本章未完|未完待续|请点击下一页|下页继续|下一页继续阅读|点击下一页继续阅读/i,
 };
+
+/** 每章最多分屏数（站点把长章节拆成 {id}_2.html、{id}_3.html …，空 #content 即末页） */
+const MAX_CHAPTER_PAGES = 10;
 
 /** 已知停站域名 → 存活镜像（.com 已返回「抱歉，站点关闭」空壳） */
 const MIRROR_MAP = {
@@ -137,11 +141,42 @@ async function discoverChapters(page, entryUrl) {
 // --- Chapter body ---
 
 async function extractChapterText(page, chapterUrl) {
-  await page.goto(chapterUrl, GOTO_OPTS);
+  const { url } = applyMirrorRewrite(chapterUrl);
+  const base = url.replace(/\.html$/i, '');
+
+  const chunks = [];
+  await page.goto(url, GOTO_OPTS);
   await page.waitForSelector(CONTENT_SEL, { timeout: 30000 });
-  const raw = await page.$eval(CONTENT_SEL, (el) => el.innerText.trim()).catch(() => '');
-  if (raw.length < MIN_BODY_CHARS) throw new Error(`正文过短 (${raw.length} 字): ${chapterUrl}`);
-  return stripLeadingNoise(stripAdLines(raw, STRIP_OPTS));
+  const first = await page.$eval(CONTENT_SEL, (el) => el.innerText.trim()).catch(() => '');
+  if (first.length < MIN_BODY_CHARS) throw new Error(`正文过短 (${first.length} 字): ${url}`);
+  chunks.push(first);
+
+  // 站点长章节按 {id}_2.html、{id}_3.html … 分屏；正文页「下一页」直指下一章，需自行探测后续分页
+  for (let p = 2; p <= MAX_CHAPTER_PAGES; p++) {
+    const pageUrl = `${base}_${p}.html`;
+    let more = '';
+    let lastErr = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await page.goto(pageUrl, GOTO_OPTS);
+        await page.waitForSelector(CONTENT_SEL, { timeout: 20000 });
+        more = await page.$eval(CONTENT_SEL, (el) => el.innerText.trim()).catch(() => '');
+        lastErr = null;
+        break;
+      } catch (e) {
+        lastErr = e;
+        if (!isTransientNavError(e)) break;
+      }
+    }
+    if (lastErr) {
+      console.warn(`  ${pageUrl} 分页读取失败（视为末页）: ${lastErr && lastErr.message ? lastErr.message : String(lastErr)}`);
+      break;
+    }
+    if (more.length < MIN_BODY_CHARS) break; // 空 #content → 上一页为末页
+    chunks.push(more);
+  }
+
+  return stripLeadingNoise(stripAdLines(chunks.join('\n'), STRIP_OPTS));
 }
 
 // --- Main ---
