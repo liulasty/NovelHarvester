@@ -7,7 +7,7 @@
     "dev:web": "concurrently -k \"node web/server/index.js\" \"vite --config web/client/vite.config.js\"",
     "build:web": "vite build --config web/client/vite.config.js",
     "start:web": "node web/server/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test",
     "scrape": "node gaode/book18/scrape-novel.js \"https://www.book18.org/zh-hans/chapters/%E6%80%A7%E5%A5%B4%E8%AE%AD%E7%BB%83%E5%AD%A6%E5%9B%AD\" --out-dir=novel-output/xnl",
     "scrape:merge": "node gaode/book18/scrape-novel.js \"https://www.book18.org/zh-hans/chapters/%E6%80%A7%E5%A5%B4%E8%AE%AD%E7%BB%83%E5%AD%A6%E5%9B%AD\" --out-dir=novel-output/xnl --merge",
     "merge": "node merge-novel.js --dir=novel-output/xnl",
