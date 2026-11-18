@@ -2,7 +2,7 @@
  * 69xku.com（69库）书籍页目录：
  * 1) 传入书籍页：`https://69xku.com/book/{书籍数字}/`
  * 2) 目录：`dl.book.chapterlist > dd > a` 为「最新章节」区块；`#list-chapterAll dd > a` 为「全部章节目录」。
- *    合并规则与 bookszw 类似：正文区按章号排序；仅出现在最新区且不在全书的链接排在 manifest 末尾。
+ *    合并规则：正文区按章号排序；仅出现在最新区且不在全书的链接排在 manifest 末尾。
  * 3) 正文：`#rtext` / `.readcontent`（在 `#acontent` 内）
  *
  * 遇 Cloudflare / 人机验证：无头模式易被拦。请使用有头浏览器或已保存的登录态：

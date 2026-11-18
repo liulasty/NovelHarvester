@@ -101,13 +101,13 @@
 
 与代码保持一致，至少包含：
 
-`book18`、`shuwen6`、`diyibanzhu`、`nzxs`、`bookszw`、`69xku`、`9ksw`
+`book18`、`shuwen6`、`nzxs`、`69xku`、`9ksw`、`kateman`、`chengzixs`、`xncwxw`、`ddw23`、`biquzi`、`73shu`、`xbiquge345`、`oldtimesxs`
 
 （若仓库日后增加引擎，同步更新 `SCRAPER_TO_SCRIPT` 与本列表。）
 
 ### 5.3 Targets 列表副文案（`target-sub`）
 
-- 展示为：**`{scraper 或 book18} · {id}`**（与原型「bookszw · bz_001」同结构，数据为真实字段）。
+- 展示为：**`{scraper 或 book18} · {id}`**（与原型「nzxs · nzxs-xsz」同结构，数据为真实字段）。
 
 ### 5.4 编辑表单（Edit）字段分组（结合实际）
 

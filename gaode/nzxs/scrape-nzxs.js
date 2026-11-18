@@ -15,7 +15,7 @@
  *   node gaode/nzxs/scrape-nzxs.js https://www.nzxs.cc/book/352626/
  *   node gaode/nzxs/scrape-nzxs.js https://www.nzxs.cc/html/5001591/index.html
  *   node gaode/nzxs/scrape-nzxs.js https://www.nzxs.cc/html/5001/5001591/1/
- * --out-dir= --merge --merge-title=  --file --url-file=  与 book18/diyibanzhu 一致
+ * --out-dir= --merge --merge-title=  --file --url-file=  与 book18 一致
  */
 
 const fs = require('fs');

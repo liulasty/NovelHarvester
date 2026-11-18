@@ -15,22 +15,6 @@
       "mergeTitle": "校花的许愿珠"
     },
     {
-      "id": "shuwen6-xnl",
-      "label": "书文小说网 性奴训练学园（m 站目录 ml）",
-      "scraper": "shuwen6",
-      "chaptersListUrl": "https://m.shuwen6.cc/xs/AjMk/ml.html",
-      "outputDir": "novel-output/shuwen6-AjMk",
-      "mergeTitle": "性奴训练学园(H)"
-    },
-    {
-      "id": "diyibanzhu-xzduo",
-      "label": "第一版主 diyibanzhu.quest 仙姝堕（list 目录）",
-      "scraper": "diyibanzhu",
-      "chaptersListUrl": "https://www.diyibanzhu.quest/list/24595.html",
-      "outputDir": "novel-output/diyibanzhu-24595",
-      "mergeTitle": "仙姝堕"
-    },
-    {
       "id": "local",
       "label": "本地章节 URL 列表（chapters_urls.txt）",
       "urlFile": "chapters_urls.txt",
@@ -52,14 +36,6 @@
       "chaptersListUrl": "https://www.nzxs.cc/html/5001591/index.html",
       "outputDir": "novel-output/nzxs-5001591",
       "mergeTitle": "仙子穴道"
-    },
-    {
-      "id": "bookszw-22313",
-      "label": "bookszw.com 22/22313（笔趣阁目录 #list）",
-      "scraper": "bookszw",
-      "chaptersListUrl": "http://www.bookszw.com/22/22313/",
-      "outputDir": "novel-output/bookszw-22-22313",
-      "mergeTitle": "九阳帝尊"
     },
     {
       "id": "x69ku-49851",
@@ -92,14 +68,6 @@
       "chaptersListUrl": "https://www.kateman.net/shuwu/hqqhpm/",
       "outputDir": "novel-output/kateman-hqqhpm",
       "mergeTitle": "家里的美人犬老婆"
-    },
-    {
-      "id": "chengzixs-124877",
-      "label": "橙子小说网 我和我的妹妹雯雯（全本）",
-      "scraper": "chengzixs",
-      "chaptersListUrl": "https://www.chengzixs.com/passage/124877/",
-      "outputDir": "novel-output/chengzixs-124877",
-      "mergeTitle": "我和我的妹妹雯雯"
     },
     {
       "id": "chengzixs-72026",
@@ -172,6 +140,14 @@
       "chaptersListUrl": "https://www.xbiquge345.com/book/80767/",
       "outputDir": "novel-output/xbiquge345-80767",
       "mergeTitle": "大漠谣"
+    },
+    {
+      "id": "oldtimesxs-185033",
+      "label": "旧时光文学 春秋风华录（总览+分页目录，章内 _N 分屏）",
+      "scraper": "oldtimesxs",
+      "chaptersListUrl": "https://www.oldtimesxs.com/go/185033/",
+      "outputDir": "novel-output/oldtimesxs-185033",
+      "mergeTitle": "春秋风华录"
     }
   ]
 }

@@ -12,7 +12,7 @@
 
 | 模块 | 路径 | 职责 |
 |------|------|------|
-| 站点适配器 | `gaode/` | 各小说站点的适配器（book18, diyibanzhu, nzxs, shuwen6, bookszw, 69xku, 9ksw, kateman），含共享 helper |
+| 站点适配器 | `gaode/` | 各小说站点的适配器（book18, nzxs, shuwen6, 69xku, 9ksw, kateman 等），含共享 helper |
 | 编排器 | `lib/orchestrator/` | registry（站点注册）、targets（目标管理）、plan（执行计划） |
 | 主流程 | `novel-workflow.js` | CLI 编排入口：发现 → 下载 → 合并，支持交互式/按 ID 执行 |
 | 章节合并 | `merge-novel.js` | 章节拼接，CLI + require 两种调用方式 |

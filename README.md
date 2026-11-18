@@ -42,9 +42,6 @@ gaode/
 ├── book18/
 │   ├── 说明文档.md
 │   └── scrape-novel.js
-├── diyibanzhu/
-│   ├── 说明文档.md
-│   └── scrape-diyibanzhu.js
 ├── shuwen6/
 │   ├── 说明文档.md
 │   ├── scrape-shuwen6.js
@@ -52,9 +49,6 @@ gaode/
 ├── nzxs/
 │   ├── 说明文档.md
 │   └── scrape-nzxs.js
-├── bookszw/
-│   ├── 说明文档.md
-│   └── scrape-bookszw.js
 └── 69xku/
     ├── 说明文档.md
     └── scrape-69xku.js
@@ -82,10 +76,10 @@ Also note: `9ksw/` and `kateman/` directories follow the same structure.
 | `urlFile` | 本地章节 URL 列表文件（每行一个 http 链接） |
 | `outputDir` | 书籍根目录，如 `novel-output/xnl`（其下会自动使用 `chapters/`、`merged/`） |
 | `mergeTitle` | 合并文件抬头书名（可空） |
-| `scraper` | 可选：与 `lib/orchestrator/registry.js` 中 `SCRAPER_TO_SCRIPT_REL` 键一致，如 `shuwen6`、`diyibanzhu`、`nzxs`、`bookszw`、`69xku`、`9ksw`、`kateman`、`book18`、`xbiquge345`（缺省为 `book18`） |
+| `scraper` | 可选：与 `lib/orchestrator/registry.js` 中 `SCRAPER_TO_SCRIPT_REL` 键一致，如 `shuwen6`、`nzxs`、`69xku`、`9ksw`、`kateman`、`book18`、`xbiquge345`、`oldtimesxs`（缺省为 `book18`） |
 | `enabled` | 可选：设为 `false` 时 Web 控制台不可启动该目标（列表仍可显示为灰显）；缺省为 `true`。`novel-workflow.js list` 会标注 `(disabled)`；仍可用 `node novel-workflow.js <id>` 直接指定 id 运行 |
 
-已配置 book18 书目示例：`xnl`（训练学园）、`xiaohua-xyz`（校花的许愿珠）；第一版主示例：`diyibanzhu-xzduo`（`scraper`: `diyibanzhu`）；nzxs 示例：`nzxs-xsz`（`scraper`: `nzxs`）；bookszw 示例：`bookszw-22313`（`scraper`: `bookszw`）；69库示例：`x69ku-49851`（`scraper`: `69xku`）。
+已配置 book18 书目示例：`xnl`（训练学园）、`xiaohua-xyz`（校花的许愿珠）；nzxs 示例：`nzxs-xsz`（`scraper`: `nzxs`）；69库示例：`x69ku-49851`（`scraper`: `69xku`）。
 
 ## 各站实现细节（`gaode/<站点>/说明文档.md`）
 
@@ -94,15 +88,14 @@ Also note: `9ksw/` and `kateman/` directories follow the same structure.
 | 站点 | 文档 |
 |------|------|
 | book18.org | [gaode/book18/说明文档.md](gaode/book18/说明文档.md) |
-| diyibanzhu.quest（第一版主） | [gaode/diyibanzhu/说明文档.md](gaode/diyibanzhu/说明文档.md) |
 | m.shuwen6.cc 书文 | [gaode/shuwen6/说明文档.md](gaode/shuwen6/说明文档.md) |
 | www.nzxs.cc（女主小说） | [gaode/nzxs/说明文档.md](gaode/nzxs/说明文档.md) |
-| www.bookszw.com | [gaode/bookszw/说明文档.md](gaode/bookszw/说明文档.md) |
 | 69xku.com（69库） | [gaode/69xku/说明文档.md](gaode/69xku/说明文档.md) |
 | 9ksw.com（九库） | [gaode/9ksw/说明文档.md](gaode/9ksw/说明文档.md) |
 | www.kateman.net（书海阁） | [gaode/kateman/说明文档.md](gaode/kateman/说明文档.md) |
 | 73shu.cc（73书院；.com 已停站） | [gaode/73shu/说明文档.md](gaode/73shu/说明文档.md) |
 | xbiquge345.com（笔趣阁小说网） | [gaode/xbiquge345/说明文档.md](gaode/xbiquge345/说明文档.md) |
+| oldtimesxs.com（旧时光文学） | [gaode/oldtimesxs/说明文档.md](gaode/oldtimesxs/说明文档.md) |
 
 ## 跨站书名搜索
 
@@ -172,7 +165,6 @@ node novel-workflow.js xnl 5
 | `NOVEL_OUTPUT_DIR` | 默认书籍根目录（脚本内 `--out-dir=` 优先） |
 | `NOVEL_URL_FILE` | 默认章节 URL 列表文件名 |
 | `BOOK18_CHAPTERS_URL` | book18：未传参时的默认章节目录页（见 [gaode/book18/说明文档.md](gaode/book18/说明文档.md)） |
-| `DIYIBANZHU_CHAPTERS_URL` | 第一版主：默认目录页（见 [gaode/diyibanzhu/说明文档.md](gaode/diyibanzhu/说明文档.md)） |
 | `SHUWEN6_ML_URL` | 书文：未传参时的目录页 URL（见 [gaode/shuwen6/说明文档.md](gaode/shuwen6/说明文档.md)） |
 
 ## 依赖与浏览器

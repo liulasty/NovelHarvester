@@ -207,6 +207,40 @@ async function readMaxCatalogPage(page) {
   });
 }
 
+/**
+ * 站点会在目录页混入少量「非连续」的干扰链接（指向 chapter190/191/193 等，
+ * 标题与相邻真实章节重复）。它们会打乱顺序，使「已存在」匹配错位并触发重复下载。
+ * 这里保留从最小章号开始的最长连续 chapterN.html 区间；若会丢弃超过 20% 条目则视为
+ * 目录本身不连续，原样返回，避免误伤。
+ */
+function filterContiguousChapterRun(rows, slug) {
+  if (!rows.length) return rows;
+  const re = new RegExp(`/${slug}/chapter(\\d+)\\.html$`, 'i');
+  const nums = rows.map((r) => {
+    const m = String(r.href).match(re);
+    return m ? parseInt(m[1], 10) : null;
+  });
+  if (nums.some((n) => n === null || Number.isNaN(n))) return rows;
+
+  const set = new Set(nums);
+  const start = Math.min(...nums);
+  let end = start;
+  while (set.has(end + 1)) end++;
+
+  const isKept = (n) => n >= start && n <= end;
+  const kept = rows.filter((r, i) => isKept(nums[i]));
+  if (kept.length < rows.length && kept.length >= rows.length * 0.8) {
+    const dropped = rows.filter((r, i) => !isKept(nums[i]));
+    console.warn(
+      `[9ksw] 过滤非连续目录链接 ${dropped.length} 条: ${dropped
+        .map((r) => r.href.split('/').pop())
+        .join(', ')}`
+    );
+    return kept;
+  }
+  return rows;
+}
+
 async function discoverChapters(page, entryUrl) {
   const loc = parseNovelListUrl(entryUrl);
 
@@ -246,7 +280,8 @@ async function discoverChapters(page, entryUrl) {
     mainDeduped.push(r);
   }
 
-  const merged = merge9kswChapterLists(mainDeduped, latestFromFirstPage);
+  const mainFiltered = filterContiguousChapterRun(mainDeduped, loc.slug);
+  const merged = merge9kswChapterLists(mainFiltered, latestFromFirstPage);
   console.log(`[9ksw] 合并后共 ${merged.length} 章（全书区顺序 + 最新区标题/补尾）`);
   return merged;
 }

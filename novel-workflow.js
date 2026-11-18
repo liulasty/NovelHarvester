@@ -62,13 +62,6 @@ function runScrapeForTarget(t, limit) {
   }
   const args = scriptArgs.argv;
 
-  const engine = (t.scraper && String(t.scraper).trim()) || 'book18';
-  if (engine === 'bookszw' && process.env.NOVEL_HEADLESS !== '0' && process.env.BOOKSZW_HEADED !== '1') {
-    console.log(
-      '提示: bookszw 易被 Cloudflare 拦截；无头模式会长时间等待。若卡住请先 Ctrl+C，再在 CMD 执行 set NOVEL_HEADLESS=0，或在 PowerShell 执行 $env:NOVEL_HEADLESS = "0"，然后重跑本命令。'
-    );
-  }
-
   console.log('执行:', 'node', args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' '));
   const r = spawnSync(process.execPath, args, {
     cwd: __dirname,
@@ -88,7 +81,7 @@ async function main() {
     const t = await askTarget(targets);
     if (!t) {
       console.error(
-        '未识别目标：须输入上方列表中的序号（如 7）或目标的 id（如 bookszw-22313），输入后回车；勿留空行。'
+        '未识别目标：须输入上方列表中的序号（如 3）或目标的 id（如 nzxs-xsz），输入后回车；勿留空行。'
       );
       process.exit(1);
     }
